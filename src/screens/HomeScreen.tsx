@@ -11,6 +11,12 @@ import {
 import { THEME } from '../theme';
 import { ExchangeRates } from '../types';
 import { saveExchangeRates } from '../services/exchangeRatesService';
+import {
+  checkForAppUpdate,
+  openAppUpdateDownload,
+  AppUpdateInfo,
+  CURRENT_APP_VERSION,
+} from '../services/updateService';
 
 interface HomeScreenProps {
   rates: ExchangeRates;
@@ -61,8 +67,43 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     setIsRateModalOpen(false);
   };
 
+  const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
+
+  React.useEffect(() => {
+    (async () => {
+      const info = await checkForAppUpdate();
+      if (info.hasUpdate) {
+        setUpdateInfo(info);
+      }
+    })();
+  }, []);
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
+      {/* App Update Notification Card */}
+      {updateInfo && updateInfo.hasUpdate && (
+        <View style={styles.updateCard}>
+          <View style={styles.updateCardHeader}>
+            <View>
+              <Text style={styles.updateBadge}>ACTUALIZACION DISPONIBLE</Text>
+              <Text style={styles.updateTitle}>Version {updateInfo.version}</Text>
+            </View>
+            <TouchableOpacity onPress={() => setUpdateInfo(null)}>
+              <Text style={styles.updateDismissText}>Omitir</Text>
+            </TouchableOpacity>
+          </View>
+          {!!updateInfo.changelog && (
+            <Text style={styles.updateChangelog}>{updateInfo.changelog}</Text>
+          )}
+          <TouchableOpacity
+            style={styles.updateActionBtn}
+            onPress={() => updateInfo.downloadUrl && openAppUpdateDownload(updateInfo.downloadUrl)}
+          >
+            <Text style={styles.updateActionBtnText}>Actualizar Directamente</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Official BCV Rates Card */}
       <View style={styles.card}>
         <View style={styles.cardHeader}>
@@ -554,6 +595,53 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalBtnSaveText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0c0a09',
+  },
+  updateCard: {
+    backgroundColor: THEME.colors.card,
+    borderRadius: THEME.radius.lg,
+    borderWidth: 1,
+    borderColor: THEME.colors.accent,
+    padding: 16,
+    gap: 8,
+  },
+  updateCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  updateBadge: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.colors.accent,
+    letterSpacing: 0.5,
+  },
+  updateTitle: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: THEME.colors.textPrimary,
+    marginTop: 2,
+  },
+  updateDismissText: {
+    fontSize: 11,
+    color: THEME.colors.textSecondary,
+    fontWeight: '600',
+  },
+  updateChangelog: {
+    fontSize: 11,
+    color: THEME.colors.textSecondary,
+    lineHeight: 16,
+  },
+  updateActionBtn: {
+    backgroundColor: THEME.colors.accent,
+    borderRadius: THEME.radius.md,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  updateActionBtnText: {
     fontSize: 12,
     fontWeight: '800',
     color: '#0c0a09',
