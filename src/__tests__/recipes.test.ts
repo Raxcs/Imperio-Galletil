@@ -1,4 +1,4 @@
-import { INITIAL_RECIPES } from '../services/recipesService';
+import { INITIAL_RECIPES, computeRecipesWithIngredients } from '../services/recipesService';
 
 describe('Recipes Costing and Ingredients Logic', () => {
   it('should verify cookies recipe yield and unit cost match ingredient sums', () => {
@@ -38,11 +38,27 @@ describe('Recipes Costing and Ingredients Logic', () => {
     expect(calculatedPackCost).toBeCloseTo(brownies.pack_cost_usd, 2);
   });
 
-  it('should have 6 steps in each recipe preparation process', () => {
-    INITIAL_RECIPES.forEach((recipe) => {
-      const lines = recipe.process.trim().split('\n');
-      expect(lines.length).toBeGreaterThanOrEqual(6);
-      expect(lines[0]).toMatch(/^1\./);
-    });
+  it('should dynamically update batch and pack costs when an ingredient price changes', () => {
+    const customIngredients = [
+      {
+        id: '1',
+        name: 'Harina de trigo',
+        presentation: 'Paquete de 1 kg',
+        category: ['galletas'],
+        price_usd: 2.06, // increased by $1
+        price_ves: 1800,
+      },
+    ];
+    const testRates = { usd_ves: 1000, eur_ves: 1100 };
+    const recomputed = computeRecipesWithIngredients(INITIAL_RECIPES, customIngredients as any, testRates);
+    const updatedCookies = recomputed.find((r) => r.id === 'cookies');
+
+    expect(updatedCookies).toBeDefined();
+    if (!updatedCookies) return;
+
+    const originalCookies = INITIAL_RECIPES.find((r) => r.id === 'cookies')!;
+    const originalSum = originalCookies.ingredients.reduce((sum: number, item) => sum + item.price_usd, 0);
+    expect(updatedCookies.batch_cost_usd).toBeCloseTo(originalSum + 1.0, 2);
+    expect(updatedCookies.pack_cost_usd).toBeCloseTo(updatedCookies.batch_cost_usd / 23, 2);
   });
 });

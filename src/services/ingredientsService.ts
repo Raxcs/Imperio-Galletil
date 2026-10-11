@@ -77,6 +77,33 @@ export const INITIAL_INGREDIENTS: Ingredient[] = [
     price_usd: 3.00,
     selected: false,
   },
+  {
+    id: '9',
+    name: 'Cacao en polvo',
+    category: ['brownies'],
+    presentation: 'Empaque de 200g',
+    price_ves: 4378.50,
+    price_usd: 5.00,
+    selected: false,
+  },
+  {
+    id: '10',
+    name: 'Empaques individuales',
+    category: ['empaques'],
+    presentation: 'Paquete de 25 empaques',
+    price_ves: 5604.48,
+    price_usd: 6.40,
+    selected: false,
+  },
+  {
+    id: '11',
+    name: 'Cucharas plasticas',
+    category: ['empaques'],
+    presentation: 'Paquete de 50 unidades',
+    price_ves: 6235.00,
+    price_usd: 7.12,
+    selected: false,
+  },
 ];
 
 export async function getCachedIngredients(): Promise<Ingredient[]> {

@@ -30,3 +30,55 @@ export async function saveExchangeRates(rates: ExchangeRates): Promise<void> {
     console.warn('Error saving rates to storage', err);
   }
 }
+
+export interface SyncBcvResult {
+  rates: ExchangeRates;
+  updated: boolean;
+  lastUpdated?: string;
+  error?: string;
+}
+
+export async function syncBcvRates(): Promise<SyncBcvResult> {
+  const current = await getExchangeRates();
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+    const [usdRes, eurRes] = await Promise.all([
+      fetch('https://ve.dolarapi.com/v1/dolares/oficial', { signal: controller.signal }),
+      fetch('https://ve.dolarapi.com/v1/euros/oficial', { signal: controller.signal }),
+    ]);
+    clearTimeout(timeoutId);
+
+    if (usdRes.ok) {
+      const usdJson = await usdRes.json();
+      const eurJson = eurRes.ok ? await eurRes.json() : null;
+
+      const newUsd = typeof usdJson.promedio === 'number' && usdJson.promedio > 0
+        ? Number(usdJson.promedio.toFixed(2))
+        : current.usd_ves;
+
+      const newEur = eurJson && typeof eurJson.promedio === 'number' && eurJson.promedio > 0
+        ? Number(eurJson.promedio.toFixed(2))
+        : current.eur_ves;
+
+      const newRates: ExchangeRates = {
+        usd_ves: newUsd,
+        eur_ves: newEur,
+      };
+
+      await saveExchangeRates(newRates);
+      return {
+        rates: newRates,
+        updated: true,
+        lastUpdated: usdJson.fechaActualizacion || new Date().toISOString(),
+      };
+    }
+  } catch (err: any) {
+    console.warn('Error fetching live BCV exchange rates', err?.message || err);
+    return { rates: current, updated: false, error: err?.message || 'Error de conexion' };
+  }
+
+  return { rates: current, updated: false };
+}
+

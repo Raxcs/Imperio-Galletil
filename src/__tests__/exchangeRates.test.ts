@@ -32,4 +32,34 @@ describe('Exchange Rates Service and Conversions', () => {
     expect(retrieved.usd_ves).toBe(900.0);
     expect(retrieved.eur_ves).toBe(1000.0);
   });
+
+  it('should sync BCV rates and fallback safely if network fails', async () => {
+    // Mock global fetch
+    const originalFetch = global.fetch;
+    try {
+      global.fetch = jest.fn().mockImplementation((url: string) => {
+        if (url.includes('dolares/oficial')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ promedio: 890.50, fechaActualizacion: '2026-10-11' }),
+          });
+        }
+        if (url.includes('euros/oficial')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ promedio: 990.20 }),
+          });
+        }
+        return Promise.reject(new Error('Unknown url'));
+      }) as any;
+
+      const { syncBcvRates } = require('../services/exchangeRatesService');
+      const result = await syncBcvRates();
+      expect(result.updated).toBe(true);
+      expect(result.rates.usd_ves).toBe(890.50);
+      expect(result.rates.eur_ves).toBe(990.20);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
 });

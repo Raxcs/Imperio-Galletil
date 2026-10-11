@@ -34,6 +34,8 @@ export interface RecipeIngredient {
   amount: string;
   price_ves: number;
   price_usd: number;
+  ingredient_name?: string;
+  ratio?: number;
 }
 
 export interface Recipe {

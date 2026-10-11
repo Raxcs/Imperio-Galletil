@@ -29,20 +29,21 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
   rates,
   onRecipesUpdated,
 }) => {
-  const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
+  const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
+  const selectedRecipe = recipes.find((r) => r.id === selectedRecipeId) || null;
   const [isEditingProcess, setIsEditingProcess] = useState(false);
   const [processEditText, setProcessEditText] = useState('');
   const [copyFeedback, setCopyFeedback] = useState(false);
 
   const openRecipeModal = (recipe: Recipe) => {
-    setSelectedRecipe(recipe);
+    setSelectedRecipeId(recipe.id);
     setProcessEditText(recipe.process);
     setIsEditingProcess(false);
     setCopyFeedback(false);
   };
 
   const closeRecipeModal = () => {
-    setSelectedRecipe(null);
+    setSelectedRecipeId(null);
     setIsEditingProcess(false);
   };
 
@@ -72,7 +73,6 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
       r.id === selectedRecipe.id ? updatedRecipe : r
     );
 
-    setSelectedRecipe(updatedRecipe);
     setIsEditingProcess(false);
     onRecipesUpdated(newRecipes);
     await setCachedRecipes(newRecipes);

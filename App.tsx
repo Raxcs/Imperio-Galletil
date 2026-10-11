@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -26,10 +26,10 @@ import {
   Recipe,
   ProductionLog,
 } from './src/types';
-import { getExchangeRates, DEFAULT_RATES } from './src/services/exchangeRatesService';
+import { getExchangeRates, DEFAULT_RATES, syncBcvRates } from './src/services/exchangeRatesService';
 import { fetchIngredients, INITIAL_INGREDIENTS } from './src/services/ingredientsService';
 import { fetchDebts, INITIAL_DEBTS } from './src/services/debtsService';
-import { fetchRecipes, INITIAL_RECIPES } from './src/services/recipesService';
+import { fetchRecipes, INITIAL_RECIPES, computeRecipesWithIngredients } from './src/services/recipesService';
 import { fetchProductionLogs, INITIAL_PRODUCTION_LOGS } from './src/services/productionService';
 import {
   checkForAppUpdate,
@@ -52,20 +52,27 @@ function MainAppContent() {
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const insets = useSafeAreaInsets();
 
-  // Initial load from storage & backend
+  // Dynamic real-time calculation connecting ingredients & exchange rates to all recipes
+  const computedRecipes = useMemo(() => {
+    return computeRecipesWithIngredients(recipes, ingredients, rates);
+  }, [recipes, ingredients, rates]);
+
+  // Initial load from storage, backend & BCV official synchronization
   useEffect(() => {
     (async () => {
       const loadedRates = await getExchangeRates();
       setRates(loadedRates);
 
-      const [loadedIngredients, loadedDebts, loadedRecipes, loadedLogs, update] = await Promise.all([
+      const [loadedIngredients, loadedDebts, loadedRecipes, loadedLogs, update, bcvSync] = await Promise.all([
         fetchIngredients(),
         fetchDebts(),
         fetchRecipes(),
         fetchProductionLogs(),
         checkForAppUpdate(),
+        syncBcvRates(),
       ]);
 
+      if (bcvSync.updated) setRates(bcvSync.rates);
       if (loadedIngredients.length > 0) setIngredients(loadedIngredients);
       if (loadedDebts.length > 0) setDebts(loadedDebts);
       if (loadedRecipes.length > 0) setRecipes(loadedRecipes);
@@ -98,7 +105,7 @@ function MainAppContent() {
 
         {activeTab === 'recipes' && (
           <RecipesScreen
-            recipes={recipes}
+            recipes={computedRecipes}
             rates={rates}
             onRecipesUpdated={setRecipes}
           />
@@ -116,6 +123,7 @@ function MainAppContent() {
           <ReportsScreen
             logs={logs}
             rates={rates}
+            recipes={computedRecipes}
             onLogsUpdated={setLogs}
           />
         )}

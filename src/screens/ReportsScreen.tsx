@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Plus, Trash } from 'lucide-react-native';
 import { THEME } from '../theme';
-import { ProductionLog, ExchangeRates } from '../types';
+import { ProductionLog, ExchangeRates, Recipe } from '../types';
 import {
   addProductionLogInBackend,
   deleteProductionLogInBackend,
@@ -20,19 +20,24 @@ import {
 interface ReportsScreenProps {
   logs: ProductionLog[];
   rates: ExchangeRates;
+  recipes: Recipe[];
   onLogsUpdated: (logs: ProductionLog[]) => void;
 }
 
 export const ReportsScreen: React.FC<ReportsScreenProps> = ({
   logs,
   rates,
+  recipes,
   onLogsUpdated,
 }) => {
+  const initialRecipe = recipes[0];
+  const initialCost = initialRecipe ? Number((initialRecipe.pack_cost_usd * rates.usd_ves).toFixed(2)) : 286.93;
+
   const [isAddFormVisible, setIsAddFormVisible] = useState(false);
-  const [prodName, setProdName] = useState('Galletas Clasicas');
-  const [prodQtyStr, setProdQtyStr] = useState('40');
+  const [prodName, setProdName] = useState(initialRecipe?.title || 'Galletas Clasicas');
+  const [prodQtyStr, setProdQtyStr] = useState(initialRecipe?.batch_yield ? initialRecipe.batch_yield.toString() : '23');
   const [prodPriceStr, setProdPriceStr] = useState('1000');
-  const [prodCost, setProdCost] = useState(286.93);
+  const [prodCost, setProdCost] = useState(initialCost);
 
   // Totals
   let totalGrossVes = 0;
@@ -54,15 +59,16 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
     ? ((netProfitVes / totalGrossVes) * 100).toFixed(1)
     : '0';
 
-  const handleSetPreset = (type: 'cookies' | 'brownies') => {
-    if (type === 'cookies') {
-      setProdName('Galletas Clasicas');
-      setProdPriceStr('1000');
-      setProdCost(286.93);
-    } else {
-      setProdName('Brownie con Galleta');
+  const handleSelectRecipePreset = (recipe: Recipe) => {
+    setProdName(recipe.title);
+    const unitCost = Number((recipe.pack_cost_usd * rates.usd_ves).toFixed(2));
+    setProdCost(unitCost);
+    setProdQtyStr(recipe.batch_yield.toString());
+    const lower = recipe.title.toLowerCase();
+    if (lower.includes('brownie')) {
       setProdPriceStr('2500');
-      setProdCost(997.04);
+    } else {
+      setProdPriceStr('1000');
     }
   };
 
@@ -76,13 +82,14 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
       return;
     }
 
-    let calculatedCost = prodCost;
-    const lower = trimmed.toLowerCase();
-    if (lower.includes('brownie')) {
-      calculatedCost = 997.04;
-    } else if (lower.includes('galleta')) {
-      calculatedCost = 286.93;
-    }
+    const matchedRecipe = recipes.find(
+      (r) => r.title.toLowerCase().trim() === trimmed.toLowerCase() ||
+             trimmed.toLowerCase().includes(r.title.toLowerCase().trim())
+    );
+
+    const calculatedCost = matchedRecipe
+      ? Number((matchedRecipe.pack_cost_usd * rates.usd_ves).toFixed(2))
+      : prodCost;
 
     const newLogData: Omit<ProductionLog, 'id'> = {
       name: trimmed,
@@ -195,20 +202,23 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
           <View style={styles.addProdFormBox}>
             <Text style={styles.formPromptTitle}>Nuevo Producto en Produccion</Text>
 
-            {/* Presets */}
+            {/* Presets based on actual recipes */}
             <View style={styles.presetButtonsRow}>
-              <TouchableOpacity
-                style={styles.presetBtn}
-                onPress={() => handleSetPreset('cookies')}
-              >
-                <Text style={styles.presetBtnText}>Galletas Base</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.presetBtn}
-                onPress={() => handleSetPreset('brownies')}
-              >
-                <Text style={styles.presetBtnText}>Brownies Base</Text>
-              </TouchableOpacity>
+              {recipes.map((recipe) => {
+                const isActive = prodName.toLowerCase().trim() === recipe.title.toLowerCase().trim();
+                const unitCostVes = recipe.pack_cost_usd * rates.usd_ves;
+                return (
+                  <TouchableOpacity
+                    key={recipe.id}
+                    style={[styles.presetBtn, isActive && styles.presetBtnActive]}
+                    onPress={() => handleSelectRecipePreset(recipe)}
+                  >
+                    <Text style={[styles.presetBtnText, isActive && styles.presetBtnTextActive]}>
+                      {recipe.title} (Bs. {unitCostVes.toFixed(0)})
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
             <View style={styles.fieldWrapper}>
@@ -472,12 +482,22 @@ const styles = StyleSheet.create({
     borderColor: THEME.colors.cardBorder,
     borderRadius: THEME.radius.sm,
     paddingVertical: 6,
+    paddingHorizontal: 6,
     alignItems: 'center',
+  },
+  presetBtnActive: {
+    backgroundColor: THEME.colors.accentBg,
+    borderColor: THEME.colors.accent,
   },
   presetBtnText: {
     fontSize: 10,
     fontWeight: '700',
     color: THEME.colors.textSecondary,
+    textAlign: 'center',
+  },
+  presetBtnTextActive: {
+    color: THEME.colors.accentLight,
+    fontWeight: '800',
   },
   fieldWrapper: {},
   rowFields: {

@@ -7,10 +7,12 @@ import {
   TouchableOpacity,
   ScrollView,
   Modal,
+  Alert,
 } from 'react-native';
+import { RefreshCw } from 'lucide-react-native';
 import { THEME } from '../theme';
 import { ExchangeRates } from '../types';
-import { saveExchangeRates } from '../services/exchangeRatesService';
+import { saveExchangeRates, syncBcvRates } from '../services/exchangeRatesService';
 import {
   checkForAppUpdate,
   openAppUpdateDownload,
@@ -67,6 +69,26 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     setIsRateModalOpen(false);
   };
 
+  const [isSyncingRates, setIsSyncingRates] = useState(false);
+
+  const handleSyncBcv = async () => {
+    setIsSyncingRates(true);
+    const result = await syncBcvRates();
+    setIsSyncingRates(false);
+    if (result.updated) {
+      onRatesUpdated(result.rates);
+      Alert.alert(
+        'Tasas Oficiales Actualizadas',
+        `Tasa oficial del BCV sincronizada:\nUSD: Bs. ${result.rates.usd_ves.toFixed(2)}\nEUR: Bs. ${result.rates.eur_ves.toFixed(2)}`
+      );
+    } else {
+      Alert.alert(
+        'Aviso de Conexion',
+        'No fue posible consultar la tasa del BCV en linea en este instante. Se mantienen las tasas actuales.'
+      );
+    }
+  };
+
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
 
   React.useEffect(() => {
@@ -108,17 +130,31 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardSubtitle}>TASAS OFICIALES BCV</Text>
-          <TouchableOpacity
-            style={styles.rateStatusPill}
-            onPress={() => {
-              setTempUsdRate(rates.usd_ves.toString());
-              setTempEurRate(rates.eur_ves.toString());
-              setIsRateModalOpen(true);
-            }}
-          >
-            <View style={styles.statusDot} />
-            <Text style={styles.rateStatusText}>Editar Tasa</Text>
-          </TouchableOpacity>
+          <View style={styles.cardHeaderActions}>
+            <TouchableOpacity
+              style={[styles.syncRateBtn, isSyncingRates && styles.syncRateBtnDisabled]}
+              onPress={handleSyncBcv}
+              disabled={isSyncingRates}
+              activeOpacity={0.7}
+            >
+              <RefreshCw size={11} color={THEME.colors.accent} strokeWidth={2.5} />
+              <Text style={styles.syncRateBtnText}>
+                {isSyncingRates ? 'Sincronizando' : 'Sincronizar BCV'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.rateStatusPill}
+              onPress={() => {
+                setTempUsdRate(rates.usd_ves.toString());
+                setTempEurRate(rates.eur_ves.toString());
+                setIsRateModalOpen(true);
+              }}
+            >
+              <View style={styles.statusDot} />
+              <Text style={styles.rateStatusText}>Editar</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.ratesGrid}>
@@ -353,6 +389,30 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: THEME.colors.textSecondary,
     letterSpacing: 0.5,
+  },
+  cardHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  syncRateBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 3.5,
+    backgroundColor: '#0c0a09',
+    borderRadius: THEME.radius.full,
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+  },
+  syncRateBtnDisabled: {
+    opacity: 0.6,
+  },
+  syncRateBtnText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: THEME.colors.accent,
   },
   rateStatusPill: {
     flexDirection: 'row',
