@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   StatusBar,
   Modal,
+  Platform,
 } from 'react-native';
 import {
   Home as HomeIcon,
@@ -70,23 +71,9 @@ export default function App() {
     })();
   }, []);
 
-  const headerSubtitles: Record<string, string> = {
-    home: 'Panel de Control y Ventas',
-    debts: 'Control de Pagos Pendientes',
-    recipes: 'Costos de Produccion y Tandas',
-    ingredients: 'Catalogo de Insumos y Costos',
-    reports: 'Balance Financiero y Rendimiento',
-  };
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor="#09090b" />
-
-      {/* App Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Imperio Galletil</Text>
-        <Text style={styles.headerSubtitle}>{headerSubtitles[activeTab]}</Text>
-      </View>
 
       {/* Main Screen Content */}
       <View style={styles.screenContainer}>
@@ -298,25 +285,7 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#09090b',
-  },
-  header: {
-    backgroundColor: THEME.colors.card,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.cardBorder,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: THEME.colors.accent,
-    letterSpacing: -0.3,
-  },
-  headerSubtitle: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: THEME.colors.textSecondary,
-    marginTop: 2,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0,
   },
   screenContainer: {
     flex: 1,
