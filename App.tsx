@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import {
-  SafeAreaView,
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   StatusBar,
   Modal,
-  Platform,
 } from 'react-native';
+import {
+  SafeAreaProvider,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import {
   Home as HomeIcon,
   Wallet as WalletIcon,
@@ -40,7 +42,7 @@ import { RecipesScreen } from './src/screens/RecipesScreen';
 import { IngredientsScreen } from './src/screens/IngredientsScreen';
 import { ReportsScreen } from './src/screens/ReportsScreen';
 
-export default function App() {
+function MainAppContent() {
   const [activeTab, setActiveTab] = useState<'home' | 'debts' | 'recipes' | 'ingredients' | 'reports'>('home');
   const [rates, setRates] = useState<ExchangeRates>(DEFAULT_RATES);
   const [ingredients, setIngredients] = useState<Ingredient[]>(INITIAL_INGREDIENTS);
@@ -48,6 +50,7 @@ export default function App() {
   const [recipes, setRecipes] = useState<Recipe[]>(INITIAL_RECIPES);
   const [logs, setLogs] = useState<ProductionLog[]>(INITIAL_PRODUCTION_LOGS);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
+  const insets = useSafeAreaInsets();
 
   // Initial load from storage & backend
   useEffect(() => {
@@ -72,7 +75,7 @@ export default function App() {
   }, []);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={[styles.safeArea, { paddingTop: insets.top }]}>
       <StatusBar barStyle="light-content" backgroundColor="#09090b" />
 
       {/* Main Screen Content */}
@@ -119,7 +122,7 @@ export default function App() {
       </View>
 
       {/* Bottom Navigation Bar */}
-      <View style={styles.bottomNav}>
+      <View style={[styles.bottomNav, { paddingBottom: insets.bottom > 0 ? insets.bottom + 4 : 8 }]}>
         {/* Tab 1: Inicio */}
         <TouchableOpacity
           style={styles.navItem}
@@ -277,7 +280,15 @@ export default function App() {
           </View>
         </Modal>
       )}
-    </SafeAreaView>
+    </View>
+  );
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <MainAppContent />
+    </SafeAreaProvider>
   );
 }
 
@@ -285,7 +296,6 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#09090b',
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 0) : 0,
   },
   screenContainer: {
     flex: 1,
@@ -296,7 +306,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.colors.card,
     borderTopWidth: 1,
     borderTopColor: THEME.colors.cardBorder,
-    paddingVertical: 8,
+    paddingTop: 8,
     paddingHorizontal: 8,
   },
   navItem: {
