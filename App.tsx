@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   StatusBar,
+  Modal,
 } from 'react-native';
 import {
   Home as HomeIcon,
@@ -27,6 +28,11 @@ import { fetchIngredients, INITIAL_INGREDIENTS } from './src/services/ingredient
 import { fetchDebts, INITIAL_DEBTS } from './src/services/debtsService';
 import { fetchRecipes, INITIAL_RECIPES } from './src/services/recipesService';
 import { fetchProductionLogs, INITIAL_PRODUCTION_LOGS } from './src/services/productionService';
+import {
+  checkForAppUpdate,
+  openAppUpdateDownload,
+  AppUpdateInfo,
+} from './src/services/updateService';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { DebtsScreen } from './src/screens/DebtsScreen';
 import { RecipesScreen } from './src/screens/RecipesScreen';
@@ -40,6 +46,7 @@ export default function App() {
   const [debts, setDebts] = useState<Debt[]>(INITIAL_DEBTS);
   const [recipes, setRecipes] = useState<Recipe[]>(INITIAL_RECIPES);
   const [logs, setLogs] = useState<ProductionLog[]>(INITIAL_PRODUCTION_LOGS);
+  const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
 
   // Initial load from storage & backend
   useEffect(() => {
@@ -47,17 +54,19 @@ export default function App() {
       const loadedRates = await getExchangeRates();
       setRates(loadedRates);
 
-      const [loadedIngredients, loadedDebts, loadedRecipes, loadedLogs] = await Promise.all([
+      const [loadedIngredients, loadedDebts, loadedRecipes, loadedLogs, update] = await Promise.all([
         fetchIngredients(),
         fetchDebts(),
         fetchRecipes(),
         fetchProductionLogs(),
+        checkForAppUpdate(),
       ]);
 
       if (loadedIngredients.length > 0) setIngredients(loadedIngredients);
       if (loadedDebts.length > 0) setDebts(loadedDebts);
       if (loadedRecipes.length > 0) setRecipes(loadedRecipes);
       if (loadedLogs.length > 0) setLogs(loadedLogs);
+      if (update.hasUpdate) setUpdateInfo(update);
     })();
   }, []);
 
@@ -229,6 +238,58 @@ export default function App() {
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* Modal de Actualizacion Directa */}
+      {updateInfo && updateInfo.hasUpdate && (
+        <Modal
+          visible={true}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setUpdateInfo(null)}
+        >
+          <View style={styles.updateModalOverlay}>
+            <View style={styles.updateModalBox}>
+              <View style={styles.updateModalHeader}>
+                <Text style={styles.updateModalBadge}>ACTUALIZACION DISPONIBLE</Text>
+                <Text style={styles.updateModalTitle}>{updateInfo.version}</Text>
+              </View>
+
+              <Text style={styles.updateModalDesc}>
+                Se ha detectado una nueva version de Imperio Galletil en GitHub. Puedes actualizar directamente sin perder tus datos locales.
+              </Text>
+
+              {!!updateInfo.changelog && (
+                <View style={styles.changelogBox}>
+                  <Text style={styles.changelogLabel}>Novedades:</Text>
+                  <Text style={styles.changelogText} numberOfLines={3}>
+                    {updateInfo.changelog}
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.updateModalButtons}>
+                <TouchableOpacity
+                  style={styles.btnDismissUpdate}
+                  onPress={() => setUpdateInfo(null)}
+                >
+                  <Text style={styles.btnDismissUpdateText}>Continuar a la App</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.btnApplyUpdate}
+                  onPress={() => {
+                    if (updateInfo.downloadUrl) {
+                      openAppUpdateDownload(updateInfo.downloadUrl);
+                    }
+                  }}
+                >
+                  <Text style={styles.btnApplyUpdateText}>Actualizar Ahora</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -284,5 +345,89 @@ const styles = StyleSheet.create({
   navLabelActive: {
     color: THEME.colors.accent,
     fontWeight: '800',
+  },
+  updateModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  updateModalBox: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: THEME.colors.card,
+    borderRadius: THEME.radius.xl,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: THEME.colors.accent,
+    gap: 12,
+  },
+  updateModalHeader: {},
+  updateModalBadge: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.colors.accent,
+    letterSpacing: 0.5,
+  },
+  updateModalTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: THEME.colors.textPrimary,
+    marginTop: 2,
+  },
+  updateModalDesc: {
+    fontSize: 12,
+    color: THEME.colors.textSecondary,
+    lineHeight: 18,
+  },
+  changelogBox: {
+    backgroundColor: '#0c0a09',
+    borderRadius: THEME.radius.md,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+  },
+  changelogLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.colors.accentLight,
+    marginBottom: 2,
+  },
+  changelogText: {
+    fontSize: 11,
+    color: THEME.colors.textSecondary,
+    lineHeight: 16,
+  },
+  updateModalButtons: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  btnDismissUpdate: {
+    flex: 1,
+    backgroundColor: '#0c0a09',
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+    paddingVertical: 10,
+    borderRadius: THEME.radius.md,
+    alignItems: 'center',
+  },
+  btnDismissUpdateText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.colors.textSecondary,
+  },
+  btnApplyUpdate: {
+    flex: 1,
+    backgroundColor: THEME.colors.accent,
+    paddingVertical: 10,
+    borderRadius: THEME.radius.md,
+    alignItems: 'center',
+  },
+  btnApplyUpdateText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#0c0a09',
   },
 });

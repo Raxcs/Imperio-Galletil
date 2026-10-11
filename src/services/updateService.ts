@@ -1,46 +1,77 @@
 import { Linking } from 'react-native';
 
+// Build timestamp of the current compiled app
+export const CURRENT_BUILD_TIMESTAMP = '2026-10-11T04:34:00Z';
 export const CURRENT_APP_VERSION = '1.0.0';
-export const CURRENT_BUILD_NUMBER = 1;
 
 export interface AppUpdateInfo {
   hasUpdate: boolean;
   version?: string;
-  buildNumber?: number;
   releaseDate?: string;
   downloadUrl?: string;
   changelog?: string;
 }
 
-const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/Raxcs/Imperio-Galletil/main/version.json';
+const GITHUB_RELEASE_API = 'https://api.github.com/repos/Raxcs/Imperio-Galletil/releases/latest';
+const FALLBACK_VERSION_URL = 'https://raw.githubusercontent.com/Raxcs/Imperio-Galletil/main/version.json';
 
 export async function checkForAppUpdate(): Promise<AppUpdateInfo> {
   try {
-    const response = await fetch(`${UPDATE_MANIFEST_URL}?t=${Date.now()}`, {
+    // 1. Query GitHub Releases API for the latest published release
+    const res = await fetch(`${GITHUB_RELEASE_API}?t=${Date.now()}`, {
       headers: {
-        'Cache-Control': 'no-cache',
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'ImperioGalletilApp',
       },
     });
 
-    if (!response.ok) {
-      return { hasUpdate: false };
-    }
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.published_at && Array.isArray(data.assets)) {
+        const publishedDate = new Date(data.published_at).getTime();
+        const localDate = new Date(CURRENT_BUILD_TIMESTAMP).getTime();
 
-    const data = await response.json();
-    if (data && typeof data.buildNumber === 'number') {
-      if (data.buildNumber > CURRENT_BUILD_NUMBER) {
+        // If the GitHub release was published after this app build was compiled
+        if (publishedDate > localDate) {
+          const apkAsset = data.assets.find((a: any) =>
+            typeof a.name === 'string' && a.name.endsWith('.apk')
+          );
+
+          const downloadUrl = apkAsset
+            ? apkAsset.browser_download_url
+            : 'https://github.com/Raxcs/Imperio-Galletil/releases/latest/download/Imperio-Galletil.apk';
+
+          return {
+            hasUpdate: true,
+            version: data.name || data.tag_name || 'Nueva version',
+            releaseDate: data.published_at ? data.published_at.split('T')[0] : '',
+            downloadUrl,
+            changelog: data.body || 'Mejoras y correcciones en la produccion y ventas.',
+          };
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Error querying GitHub Releases API', err);
+  }
+
+  // 2. Fallback check with version.json
+  try {
+    const fbRes = await fetch(`${FALLBACK_VERSION_URL}?t=${Date.now()}`);
+    if (fbRes.ok) {
+      const fbData = await fbRes.json();
+      if (fbData && fbData.buildNumber && fbData.buildNumber > 1) {
         return {
           hasUpdate: true,
-          version: data.version,
-          buildNumber: data.buildNumber,
-          releaseDate: data.releaseDate,
-          downloadUrl: data.downloadUrl,
-          changelog: data.changelog,
+          version: fbData.version,
+          releaseDate: fbData.releaseDate,
+          downloadUrl: fbData.downloadUrl,
+          changelog: fbData.changelog,
         };
       }
     }
   } catch (err) {
-    console.warn('Error checking for app updates', err);
+    console.warn('Error querying fallback version.json', err);
   }
 
   return { hasUpdate: false };
