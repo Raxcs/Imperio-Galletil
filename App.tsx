@@ -27,10 +27,10 @@ import {
   ProductionLog,
 } from './src/types';
 import { getExchangeRates, DEFAULT_RATES, syncBcvRates } from './src/services/exchangeRatesService';
-import { fetchIngredients, INITIAL_INGREDIENTS } from './src/services/ingredientsService';
-import { fetchDebts, INITIAL_DEBTS } from './src/services/debtsService';
-import { fetchRecipes, INITIAL_RECIPES, computeRecipesWithIngredients } from './src/services/recipesService';
-import { fetchProductionLogs, INITIAL_PRODUCTION_LOGS } from './src/services/productionService';
+import { fetchIngredients, getCachedIngredients, INITIAL_INGREDIENTS } from './src/services/ingredientsService';
+import { fetchDebts, getCachedDebts, INITIAL_DEBTS } from './src/services/debtsService';
+import { fetchRecipes, getCachedRecipes, INITIAL_RECIPES, computeRecipesWithIngredients } from './src/services/recipesService';
+import { fetchProductionLogs, getCachedProductionLogs, INITIAL_PRODUCTION_LOGS } from './src/services/productionService';
 import {
   checkForAppUpdate,
   openAppUpdateDownload,
@@ -57,28 +57,88 @@ function MainAppContent() {
     return computeRecipesWithIngredients(recipes, ingredients, rates);
   }, [recipes, ingredients, rates]);
 
-  // Initial load from storage, backend & BCV official synchronization
+  // Initial load: 1. Instant Cache Hydration (<5ms), 2. Decoupled Background Cloud Sync
   useEffect(() => {
+    let isMounted = true;
+
     (async () => {
-      const loadedRates = await getExchangeRates();
-      setRates(loadedRates);
+      // 1. Immediately hydrate state from local storage cache
+      try {
+        const [cachedRates, cachedDebts, cachedIngredients, cachedRecipes, cachedLogs] = await Promise.all([
+          getExchangeRates(),
+          getCachedDebts(),
+          getCachedIngredients(),
+          getCachedRecipes(),
+          getCachedProductionLogs(),
+        ]);
 
-      const [loadedIngredients, loadedDebts, loadedRecipes, loadedLogs, update, bcvSync] = await Promise.all([
-        fetchIngredients(),
-        fetchDebts(),
-        fetchRecipes(),
-        fetchProductionLogs(),
-        checkForAppUpdate(),
-        syncBcvRates(),
-      ]);
+        if (!isMounted) return;
+        if (cachedRates) setRates(cachedRates);
+        if (cachedDebts && cachedDebts.length > 0) setDebts(cachedDebts);
+        if (cachedIngredients && cachedIngredients.length > 0) setIngredients(cachedIngredients);
+        if (cachedRecipes && cachedRecipes.length > 0) setRecipes(cachedRecipes);
+        if (cachedLogs && cachedLogs.length > 0) setLogs(cachedLogs);
+      } catch (err) {
+        console.warn('Error hydrating local cache on startup', err);
+      }
 
-      if (bcvSync.updated) setRates(bcvSync.rates);
-      if (loadedIngredients.length > 0) setIngredients(loadedIngredients);
-      if (loadedDebts.length > 0) setDebts(loadedDebts);
-      if (loadedRecipes.length > 0) setRecipes(loadedRecipes);
-      if (loadedLogs.length > 0) setLogs(loadedLogs);
-      if (update.hasUpdate) setUpdateInfo(update);
+      // 2. Decoupled background cloud sync (each finishes on its own without blocking others)
+      fetchDebts()
+        .then((freshDebts) => {
+          if (isMounted && freshDebts && freshDebts.length > 0) {
+            setDebts(freshDebts);
+          }
+        })
+        .catch(() => {});
+
+      fetchIngredients()
+        .then((freshIngs) => {
+          if (isMounted && freshIngs && freshIngs.length > 0) {
+            setIngredients(freshIngs);
+          }
+        })
+        .catch(() => {});
+
+      fetchRecipes()
+        .then((freshRecipes) => {
+          if (isMounted && freshRecipes && freshRecipes.length > 0) {
+            setRecipes(freshRecipes);
+          }
+        })
+        .catch(() => {});
+
+      fetchProductionLogs()
+        .then((freshLogs) => {
+          if (isMounted && freshLogs && freshLogs.length > 0) {
+            setLogs(freshLogs);
+          }
+        })
+        .catch(() => {});
+
+      syncBcvRates()
+        .then((bcvSync) => {
+          if (isMounted && bcvSync.updated) {
+            setRates(bcvSync.rates);
+          }
+        })
+        .catch(() => {});
+
+      // 3. Deferred check for app update (2 seconds) so it doesn't compete with data sync
+      setTimeout(() => {
+        if (!isMounted) return;
+        checkForAppUpdate()
+          .then((update) => {
+            if (isMounted && update.hasUpdate) {
+              setUpdateInfo(update);
+            }
+          })
+          .catch(() => {});
+      }, 2000);
     })();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   return (

@@ -8,11 +8,13 @@ import {
   TextInput,
   Modal,
   Alert,
+  RefreshControl,
 } from 'react-native';
 import { Plus, Check } from 'lucide-react-native';
 import { THEME } from '../theme';
 import { Ingredient, ExchangeRates } from '../types';
 import {
+  fetchIngredients,
   createIngredientInBackend,
   updateIngredientPriceInBackend,
   setCachedIngredients,
@@ -31,6 +33,21 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
 }) => {
   const [activeCategory, setActiveCategory] = useState<'todos' | 'galletas' | 'brownies' | 'empaques'>('todos');
   const [isAddFormVisible, setIsAddFormVisible] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      const fresh = await fetchIngredients();
+      if (fresh) {
+        onIngredientsUpdated(fresh);
+      }
+    } catch (err) {
+      console.warn('Error refreshing ingredients', err);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
   
   // New ingredient form state
   const [newName, setNewName] = useState('');
@@ -173,7 +190,19 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefreshing}
+          onRefresh={handleRefresh}
+          tintColor={THEME.colors.accent}
+          colors={[THEME.colors.accent]}
+        />
+      }
+    >
       {/* Top Banner: Total Seleccionado */}
       <View style={styles.summaryCard}>
         <View style={styles.summaryTopRow}>

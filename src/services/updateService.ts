@@ -17,13 +17,18 @@ const FALLBACK_VERSION_URL = 'https://raw.githubusercontent.com/Raxcs/Imperio-Ga
 
 export async function checkForAppUpdate(): Promise<AppUpdateInfo> {
   try {
-    // 1. Query GitHub Releases API for the latest published release
+    // 1. Query GitHub Releases API for the latest published release with timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
+
     const res = await fetch(`${GITHUB_RELEASE_API}?t=${Date.now()}`, {
       headers: {
         'Accept': 'application/vnd.github.v3+json',
         'User-Agent': 'ImperioGalletilApp',
       },
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (res.ok) {
       const data = await res.json();
@@ -57,7 +62,14 @@ export async function checkForAppUpdate(): Promise<AppUpdateInfo> {
 
   // 2. Fallback check with version.json
   try {
-    const fbRes = await fetch(`${FALLBACK_VERSION_URL}?t=${Date.now()}`);
+    const fbController = new AbortController();
+    const fbTimeoutId = setTimeout(() => fbController.abort(), 3500);
+
+    const fbRes = await fetch(`${FALLBACK_VERSION_URL}?t=${Date.now()}`, {
+      signal: fbController.signal,
+    });
+    clearTimeout(fbTimeoutId);
+
     if (fbRes.ok) {
       const fbData = await fbRes.json();
       if (fbData && fbData.buildNumber && fbData.buildNumber > 1) {

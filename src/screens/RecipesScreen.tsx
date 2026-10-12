@@ -8,12 +8,14 @@ import {
   Modal,
   TextInput,
   Alert,
+  RefreshControl,
 } from 'react-native';
 import { ChevronRight, ChevronLeft, Copy, Pencil } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { THEME } from '../theme';
 import { Recipe, ExchangeRates } from '../types';
 import {
+  fetchRecipes,
   updateRecipeProcessInBackend,
   setCachedRecipes,
 } from '../services/recipesService';
@@ -34,6 +36,21 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
   const [isEditingProcess, setIsEditingProcess] = useState(false);
   const [processEditText, setProcessEditText] = useState('');
   const [copyFeedback, setCopyFeedback] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      const fresh = await fetchRecipes();
+      if (fresh) {
+        onRecipesUpdated(fresh);
+      }
+    } catch (err) {
+      console.warn('Error refreshing recipes', err);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const openRecipeModal = (recipe: Recipe) => {
     setSelectedRecipeId(recipe.id);
@@ -80,7 +97,19 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefreshing}
+          onRefresh={handleRefresh}
+          tintColor={THEME.colors.accent}
+          colors={[THEME.colors.accent]}
+        />
+      }
+    >
       {/* Header Info */}
       <View style={styles.headerInfo}>
         <Text style={styles.headerSubtitle}>RECETARIO Y ESCANDALLO</Text>

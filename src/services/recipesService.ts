@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../lib/supabase';
+import { supabase, withTimeout } from '../lib/supabase';
 import { Recipe, Ingredient, ExchangeRates, RecipeIngredient } from '../types';
 
 const STORAGE_KEY = '@imperio_galletil_recipes';
@@ -116,9 +116,9 @@ export function computeRecipesWithIngredients(
 export async function getCachedRecipes(): Promise<Recipe[]> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    if (raw) {
+    if (raw !== null) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed;
       }
     }
@@ -138,10 +138,14 @@ export async function setCachedRecipes(items: Recipe[]): Promise<void> {
 
 export async function fetchRecipes(): Promise<Recipe[]> {
   let list: Recipe[] = [];
+  let isFetchSuccess = false;
 
   try {
-    const { data, error } = await supabase.from('recipes').select('*');
-    if (!error && data && data.length > 0) {
+    const { data, error } = await withTimeout(
+      supabase.from('recipes').select('*')
+    );
+    if (!error && Array.isArray(data)) {
+      isFetchSuccess = true;
       list = data.map((r: any) => ({
         id: r.id,
         title: r.title,
@@ -158,7 +162,7 @@ export async function fetchRecipes(): Promise<Recipe[]> {
     console.warn('Error fetching recipes from Supabase', err);
   }
 
-  if (list.length === 0) {
+  if (!isFetchSuccess || list.length === 0) {
     list = await getCachedRecipes();
   } else {
     await setCachedRecipes(list);

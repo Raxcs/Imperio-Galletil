@@ -8,6 +8,7 @@ import {
   ScrollView,
   Modal,
   Alert,
+  RefreshControl,
 } from 'react-native';
 import { RefreshCw } from 'lucide-react-native';
 import { THEME } from '../theme';
@@ -92,16 +93,38 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
 
   React.useEffect(() => {
-    (async () => {
+    const timer = setTimeout(async () => {
       const info = await checkForAppUpdate();
       if (info.hasUpdate) {
         setUpdateInfo(info);
       }
-    })();
+    }, 2500);
+    return () => clearTimeout(timer);
   }, []);
 
+  const handlePullRefresh = async () => {
+    setIsSyncingRates(true);
+    const result = await syncBcvRates();
+    setIsSyncingRates(false);
+    if (result.updated) {
+      onRatesUpdated(result.rates);
+    }
+  };
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={isSyncingRates}
+          onRefresh={handlePullRefresh}
+          tintColor={THEME.colors.accent}
+          colors={[THEME.colors.accent]}
+        />
+      }
+    >
       {/* App Update Notification Card */}
       {updateInfo && updateInfo.hasUpdate && (
         <View style={styles.updateCard}>

@@ -7,11 +7,13 @@ import {
   ScrollView,
   TextInput,
   Alert,
+  RefreshControl,
 } from 'react-native';
 import { Plus, Trash } from 'lucide-react-native';
 import { THEME } from '../theme';
 import { ProductionLog, ExchangeRates, Recipe } from '../types';
 import {
+  fetchProductionLogs,
   addProductionLogInBackend,
   deleteProductionLogInBackend,
   setCachedProductionLogs,
@@ -34,6 +36,22 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
   const initialCost = initialRecipe ? Number((initialRecipe.pack_cost_usd * rates.usd_ves).toFixed(2)) : 286.93;
 
   const [isAddFormVisible, setIsAddFormVisible] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      const fresh = await fetchProductionLogs();
+      if (fresh) {
+        onLogsUpdated(fresh);
+      }
+    } catch (err) {
+      console.warn('Error refreshing production logs', err);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const [prodName, setProdName] = useState(initialRecipe?.title || 'Galletas Clasicas');
   const [prodQtyStr, setProdQtyStr] = useState(initialRecipe?.batch_yield ? initialRecipe.batch_yield.toString() : '23');
   const [prodPriceStr, setProdPriceStr] = useState('1000');
@@ -127,7 +145,19 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={isRefreshing}
+          onRefresh={handleRefresh}
+          tintColor={THEME.colors.accent}
+          colors={[THEME.colors.accent]}
+        />
+      }
+    >
       {/* Top Banner: Ganancia Neta Libre */}
       <View style={styles.netProfitCard}>
         <View style={styles.netProfitHeader}>

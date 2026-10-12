@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../lib/supabase';
+import { supabase, withTimeout } from '../lib/supabase';
 import { Debt } from '../types';
 
 const STORAGE_KEY = '@imperio_galletil_debts';
@@ -47,9 +47,9 @@ export const INITIAL_DEBTS: Debt[] = [
 export async function getCachedDebts(): Promise<Debt[]> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    if (raw) {
+    if (raw !== null) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed;
       }
     }
@@ -91,15 +91,19 @@ export function purgeOldDebts(items: Debt[]): { valid: Debt[]; expiredIds: strin
 
 export async function fetchDebts(): Promise<Debt[]> {
   let list: Debt[] = [];
+  let isFetchSuccess = false;
 
   try {
-    // 1. Try Supabase English table 'debts'
-    const { data, error } = await supabase
-      .from('debts')
-      .select('*')
-      .order('created_at', { ascending: false });
+    // 1. Try Supabase English table 'debts' with timeout
+    const { data, error } = await withTimeout(
+      supabase
+        .from('debts')
+        .select('*')
+        .order('created_at', { ascending: false })
+    );
 
-    if (!error && data && data.length > 0) {
+    if (!error && Array.isArray(data)) {
+      isFetchSuccess = true;
       list = data.map((item: any) => ({
         id: String(item.id),
         name: item.name,
@@ -112,12 +116,15 @@ export async function fetchDebts(): Promise<Debt[]> {
       }));
     } else if (error) {
       // 2. Try Supabase fallback Spanish table 'deudas'
-      const { data: fbData, error: fbError } = await supabase
-        .from('deudas')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const { data: fbData, error: fbError } = await withTimeout(
+        supabase
+          .from('deudas')
+          .select('*')
+          .order('created_at', { ascending: false })
+      );
 
-      if (!fbError && fbData && fbData.length > 0) {
+      if (!fbError && Array.isArray(fbData)) {
+        isFetchSuccess = true;
         list = fbData.map((item: any) => ({
           id: String(item.id),
           name: item.name,
@@ -134,7 +141,7 @@ export async function fetchDebts(): Promise<Debt[]> {
     console.warn('Error fetching debts from Supabase, using cache', err);
   }
 
-  if (list.length === 0) {
+  if (!isFetchSuccess || list.length === 0) {
     list = await getCachedDebts();
   }
 

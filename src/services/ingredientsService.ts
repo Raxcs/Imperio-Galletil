@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../lib/supabase';
+import { supabase, withTimeout } from '../lib/supabase';
 import { Ingredient } from '../types';
 
 const STORAGE_KEY = '@imperio_galletil_ingredients';
@@ -109,9 +109,9 @@ export const INITIAL_INGREDIENTS: Ingredient[] = [
 export async function getCachedIngredients(): Promise<Ingredient[]> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    if (raw) {
+    if (raw !== null) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed;
       }
     }
@@ -131,15 +131,19 @@ export async function setCachedIngredients(items: Ingredient[]): Promise<void> {
 
 export async function fetchIngredients(): Promise<Ingredient[]> {
   let list: Ingredient[] = [];
+  let isFetchSuccess = false;
 
-  // 1. Try Supabase English table 'ingredients'
+  // 1. Try Supabase English table 'ingredients' with timeout
   try {
-    const { data, error } = await supabase
-      .from('ingredients')
-      .select('*')
-      .order('created_at', { ascending: true });
+    const { data, error } = await withTimeout(
+      supabase
+        .from('ingredients')
+        .select('*')
+        .order('created_at', { ascending: true })
+    );
 
-    if (!error && data && data.length > 0) {
+    if (!error && Array.isArray(data)) {
+      isFetchSuccess = true;
       list = data.map((item: any) => ({
         id: String(item.id),
         name: item.name,
@@ -152,12 +156,15 @@ export async function fetchIngredients(): Promise<Ingredient[]> {
       }));
     } else if (error) {
       // 2. Try Supabase fallback Spanish table 'insumos' if table was not migrated yet
-      const { data: fallbackData, error: fallbackError } = await supabase
-        .from('insumos')
-        .select('*')
-        .order('created_at', { ascending: true });
+      const { data: fallbackData, error: fallbackError } = await withTimeout(
+        supabase
+          .from('insumos')
+          .select('*')
+          .order('created_at', { ascending: true })
+      );
 
-      if (!fallbackError && fallbackData && fallbackData.length > 0) {
+      if (!fallbackError && Array.isArray(fallbackData)) {
+        isFetchSuccess = true;
         list = fallbackData.map((item: any) => ({
           id: String(item.id),
           name: item.name,
@@ -174,8 +181,8 @@ export async function fetchIngredients(): Promise<Ingredient[]> {
     console.warn('Supabase ingredients fetch failed, using local cache', err);
   }
 
-  // 3. Fallback to cached or initial if Supabase returned nothing
-  if (list.length === 0) {
+  // 3. Fallback to cached or initial if Supabase returned nothing or failed
+  if (!isFetchSuccess || list.length === 0) {
     list = await getCachedIngredients();
   } else {
     // Preserve local selection state

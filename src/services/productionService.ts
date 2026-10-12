@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../lib/supabase';
+import { supabase, withTimeout } from '../lib/supabase';
 import { ProductionLog } from '../types';
 
 const STORAGE_KEY = '@imperio_galletil_production_logs';
@@ -24,9 +24,9 @@ export const INITIAL_PRODUCTION_LOGS: ProductionLog[] = [
 export async function getCachedProductionLogs(): Promise<ProductionLog[]> {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
-    if (raw) {
+    if (raw !== null) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed;
       }
     }
@@ -46,14 +46,18 @@ export async function setCachedProductionLogs(items: ProductionLog[]): Promise<v
 
 export async function fetchProductionLogs(): Promise<ProductionLog[]> {
   let list: ProductionLog[] = [];
+  let isFetchSuccess = false;
 
   try {
-    const { data, error } = await supabase
-      .from('production_logs')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const { data, error } = await withTimeout(
+      supabase
+        .from('production_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+    );
 
-    if (!error && data && data.length > 0) {
+    if (!error && Array.isArray(data)) {
+      isFetchSuccess = true;
       list = data.map((item: any) => ({
         id: String(item.id),
         name: item.name,
@@ -64,12 +68,15 @@ export async function fetchProductionLogs(): Promise<ProductionLog[]> {
       }));
     } else if (error) {
       // Fallback to produccion table if present
-      const { data: fbData } = await supabase
-        .from('produccion')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const { data: fbData, error: fbError } = await withTimeout(
+        supabase
+          .from('produccion')
+          .select('*')
+          .order('created_at', { ascending: false })
+      );
 
-      if (fbData && fbData.length > 0) {
+      if (!fbError && Array.isArray(fbData)) {
+        isFetchSuccess = true;
         list = fbData.map((item: any) => ({
           id: String(item.id),
           name: item.name,
@@ -84,7 +91,7 @@ export async function fetchProductionLogs(): Promise<ProductionLog[]> {
     console.warn('Error fetching production logs from Supabase', err);
   }
 
-  if (list.length === 0) {
+  if (!isFetchSuccess || list.length === 0) {
     list = await getCachedProductionLogs();
   } else {
     await setCachedProductionLogs(list);

@@ -12,3 +12,13 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     detectSessionInUrl: false,
   },
 });
+
+export function withTimeout<T>(promise: PromiseLike<T> | Promise<T>, ms: number = 4500): Promise<T> {
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error('Tiempo de espera agotado')), ms)
+    ),
+  ]);
+}
+
