@@ -27,7 +27,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onNavigateToProduction,
 }) => {
   const [baseCurrency, setBaseCurrency] = useState<'USD' | 'VES' | 'EUR'>('USD');
-  const [amountStr, setAmountStr] = useState<string>('0');
+  const [amountStr, setAmountStr] = useState<string>('1');
   const [isSyncingRates, setIsSyncingRates] = useState(false);
 
   const numAmount = parseFloat(amountStr) || 0;
@@ -210,7 +210,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             value={amountStr}
             onChangeText={setAmountStr}
             keyboardType="numeric"
-            placeholder="0.00"
+            placeholder="1.00"
             placeholderTextColor={THEME.colors.textMuted}
           />
           <Text style={styles.inputCurrencySuffix}>{baseCurrency}</Text>
