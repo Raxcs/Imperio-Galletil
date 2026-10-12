@@ -17,6 +17,7 @@ import { saveExchangeRates, syncBcvRates } from '../services/exchangeRatesServic
 import {
   checkForAppUpdate,
   openAppUpdateDownload,
+  downloadAndInstallApk,
   AppUpdateInfo,
   CURRENT_APP_VERSION,
 } from '../services/updateService';
@@ -91,6 +92,40 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   };
 
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
+  const [isDownloadingApk, setIsDownloadingApk] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadStatusText, setDownloadStatusText] = useState('');
+
+  const handleStartHomeScreenUpdate = async () => {
+    if (!updateInfo?.downloadUrl) return;
+    setIsDownloadingApk(true);
+    setDownloadProgress(0);
+    setDownloadStatusText('Conectando...');
+
+    const result = await downloadAndInstallApk(updateInfo.downloadUrl, (ratio) => {
+      setDownloadProgress(ratio);
+      if (ratio >= 1) {
+        setDownloadStatusText('Iniciando instalador nativo...');
+      } else {
+        setDownloadStatusText(`Descargando: ${Math.round(ratio * 100)}%`);
+      }
+    });
+
+    if (!result.success) {
+      setIsDownloadingApk(false);
+      Alert.alert(
+        'Aviso de Descarga',
+        'No fue posible iniciar la instalacion nativa. ¿Deseas descargar desde el navegador?',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Abrir Navegador',
+            onPress: () => updateInfo.downloadUrl && openAppUpdateDownload(updateInfo.downloadUrl),
+          },
+        ]
+      );
+    }
+  };
 
   React.useEffect(() => {
     const timer = setTimeout(async () => {
@@ -140,12 +175,25 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           {!!updateInfo.changelog && (
             <Text style={styles.updateChangelog}>{updateInfo.changelog}</Text>
           )}
-          <TouchableOpacity
-            style={styles.updateActionBtn}
-            onPress={() => updateInfo.downloadUrl && openAppUpdateDownload(updateInfo.downloadUrl)}
-          >
-            <Text style={styles.updateActionBtnText}>Actualizar Directamente</Text>
-          </TouchableOpacity>
+
+          {isDownloadingApk ? (
+            <View style={styles.cardDownloadProgressSection}>
+              <View style={styles.cardDownloadProgressBarTrack}>
+                <View style={[styles.cardDownloadProgressBarFill, { width: `${Math.round(downloadProgress * 100)}%` }]} />
+              </View>
+              <View style={styles.cardDownloadProgressRow}>
+                <Text style={styles.cardDownloadStatusText}>{downloadStatusText}</Text>
+                <Text style={styles.cardDownloadPercentText}>{Math.round(downloadProgress * 100)}%</Text>
+              </View>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.updateActionBtn}
+              onPress={handleStartHomeScreenUpdate}
+            >
+              <Text style={styles.updateActionBtnText}>Actualizar Directamente</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
@@ -728,5 +776,36 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: '#0c0a09',
+  },
+  cardDownloadProgressSection: {
+    marginTop: 6,
+    gap: 8,
+  },
+  cardDownloadProgressBarTrack: {
+    height: 8,
+    backgroundColor: '#0c0a09',
+    borderRadius: THEME.radius.full,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+  },
+  cardDownloadProgressBarFill: {
+    height: '100%',
+    backgroundColor: THEME.colors.accent,
+    borderRadius: THEME.radius.full,
+  },
+  cardDownloadProgressRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  cardDownloadStatusText: {
+    fontSize: 11,
+    color: THEME.colors.textSecondary,
+  },
+  cardDownloadPercentText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: THEME.colors.accent,
   },
 });

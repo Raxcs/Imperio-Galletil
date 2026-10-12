@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StatusBar,
   Modal,
+  Alert,
 } from 'react-native';
 import {
   SafeAreaProvider,
@@ -34,6 +35,7 @@ import { fetchProductionLogs, getCachedProductionLogs, INITIAL_PRODUCTION_LOGS }
 import {
   checkForAppUpdate,
   openAppUpdateDownload,
+  downloadAndInstallApk,
   AppUpdateInfo,
 } from './src/services/updateService';
 import { HomeScreen } from './src/screens/HomeScreen';
@@ -50,7 +52,41 @@ function MainAppContent() {
   const [recipes, setRecipes] = useState<Recipe[]>(INITIAL_RECIPES);
   const [logs, setLogs] = useState<ProductionLog[]>(INITIAL_PRODUCTION_LOGS);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
+  const [downloadingUpdate, setDownloadingUpdate] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadStatusText, setDownloadStatusText] = useState('');
   const insets = useSafeAreaInsets();
+
+  const handleStartUpdate = async () => {
+    if (!updateInfo?.downloadUrl) return;
+    setDownloadingUpdate(true);
+    setDownloadProgress(0);
+    setDownloadStatusText('Conectando con el servidor...');
+
+    const result = await downloadAndInstallApk(updateInfo.downloadUrl, (ratio) => {
+      setDownloadProgress(ratio);
+      if (ratio >= 1) {
+        setDownloadStatusText('Iniciando instalador nativo de Android...');
+      } else {
+        setDownloadStatusText(`Descargando actualizacion: ${Math.round(ratio * 100)}%`);
+      }
+    });
+
+    if (!result.success) {
+      setDownloadingUpdate(false);
+      Alert.alert(
+        'Aviso de Descarga',
+        'No fue posible iniciar la instalacion nativa directa. ¿Deseas descargar el instalador desde el navegador?',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Abrir Navegador',
+            onPress: () => updateInfo.downloadUrl && openAppUpdateDownload(updateInfo.downloadUrl),
+          },
+        ]
+      );
+    }
+  };
 
   // Dynamic real-time calculation connecting ingredients & exchange rates to all recipes
   const computedRecipes = useMemo(() => {
@@ -325,25 +361,33 @@ function MainAppContent() {
                 </View>
               )}
 
-              <View style={styles.updateModalButtons}>
-                <TouchableOpacity
-                  style={styles.btnDismissUpdate}
-                  onPress={() => setUpdateInfo(null)}
-                >
-                  <Text style={styles.btnDismissUpdateText}>Continuar a la App</Text>
-                </TouchableOpacity>
+              {downloadingUpdate ? (
+                <View style={styles.downloadProgressSection}>
+                  <View style={styles.downloadProgressBarTrack}>
+                    <View style={[styles.downloadProgressBarFill, { width: `${Math.round(downloadProgress * 100)}%` }]} />
+                  </View>
+                  <View style={styles.downloadProgressTextRow}>
+                    <Text style={styles.downloadStatusText}>{downloadStatusText}</Text>
+                    <Text style={styles.downloadPercentText}>{Math.round(downloadProgress * 100)}%</Text>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.updateModalButtons}>
+                  <TouchableOpacity
+                    style={styles.btnDismissUpdate}
+                    onPress={() => setUpdateInfo(null)}
+                  >
+                    <Text style={styles.btnDismissUpdateText}>Continuar a la App</Text>
+                  </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={styles.btnApplyUpdate}
-                  onPress={() => {
-                    if (updateInfo.downloadUrl) {
-                      openAppUpdateDownload(updateInfo.downloadUrl);
-                    }
-                  }}
-                >
-                  <Text style={styles.btnApplyUpdateText}>Actualizar Ahora</Text>
-                </TouchableOpacity>
-              </View>
+                  <TouchableOpacity
+                    style={styles.btnApplyUpdate}
+                    onPress={handleStartUpdate}
+                  >
+                    <Text style={styles.btnApplyUpdateText}>Actualizar Ahora</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           </View>
         </Modal>
@@ -476,5 +520,36 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     color: '#0c0a09',
+  },
+  downloadProgressSection: {
+    marginTop: 6,
+    gap: 8,
+  },
+  downloadProgressBarTrack: {
+    height: 8,
+    backgroundColor: '#0c0a09',
+    borderRadius: THEME.radius.full,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+  },
+  downloadProgressBarFill: {
+    height: '100%',
+    backgroundColor: THEME.colors.accent,
+    borderRadius: THEME.radius.full,
+  },
+  downloadProgressTextRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  downloadStatusText: {
+    fontSize: 11,
+    color: THEME.colors.textSecondary,
+  },
+  downloadPercentText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: THEME.colors.accent,
   },
 });

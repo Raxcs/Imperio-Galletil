@@ -8,6 +8,10 @@ module.exports = {
     '^@react-native-async-storage/async-storage$': '<rootDir>/__mocks__/async-storage.js',
     '^../lib/supabase$': '<rootDir>/__mocks__/supabase.js',
     '^./lib/supabase$': '<rootDir>/__mocks__/supabase.js',
+    '^react-native$': '<rootDir>/__mocks__/react-native.js',
+    '^expo-file-system/legacy$': '<rootDir>/__mocks__/expo-file-system.js',
+    '^expo-file-system$': '<rootDir>/__mocks__/expo-file-system.js',
+    '^expo-intent-launcher$': '<rootDir>/__mocks__/expo-intent-launcher.js',
   },
   transform: {
     '^.+\\.tsx?$': ['ts-jest', { tsconfig: { esModuleInterop: true } }],
