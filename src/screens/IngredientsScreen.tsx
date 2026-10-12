@@ -203,26 +203,28 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
         />
       }
     >
-      {/* Top Banner: Total Seleccionado */}
-      <View style={styles.summaryCard}>
-        <View style={styles.summaryTopRow}>
-          <Text style={styles.summaryTitle}>TOTAL SELECCIONADO</Text>
-          <View style={styles.summaryBadge}>
-            <Text style={styles.summaryBadgeText}>
-              {selectedIngredients.length} {selectedIngredients.length === 1 ? 'Marcado' : 'Marcados'}
+      {/* Top Banner: Total Seleccionado (solo si hay insumos seleccionados) */}
+      {selectedIngredients.length > 0 && (
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryTopRow}>
+            <Text style={styles.summaryTitle}>TOTAL SELECCIONADO</Text>
+            <View style={styles.summaryBadge}>
+              <Text style={styles.summaryBadgeText}>
+                {selectedIngredients.length} {selectedIngredients.length === 1 ? 'Marcado' : 'Marcados'}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.summaryAmountRow}>
+            <Text style={styles.summaryTotalVes}>
+              Bs. {selectedTotalVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
+            <Text style={styles.summaryTotalUsd}>
+              ${selectedTotalUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
             </Text>
           </View>
         </View>
-
-        <View style={styles.summaryAmountRow}>
-          <Text style={styles.summaryTotalVes}>
-            Bs. {selectedTotalVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </Text>
-          <Text style={styles.summaryTotalUsd}>
-            ${selectedTotalUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-          </Text>
-        </View>
-      </View>
+      )}
 
       {/* Button Open Form */}
       <TouchableOpacity
