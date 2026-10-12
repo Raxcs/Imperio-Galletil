@@ -443,7 +443,7 @@ const styles = StyleSheet.create({
   screenWrapper: {
     flex: 1,
     position: 'relative',
-    backgroundColor: THEME.colors.bg,
+    backgroundColor: 'transparent',
   },
   container: {
     flex: 1,

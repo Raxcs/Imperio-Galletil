@@ -47,6 +47,7 @@ import { DebtsScreen } from './src/screens/DebtsScreen';
 import { RecipesScreen } from './src/screens/RecipesScreen';
 import { IngredientsScreen } from './src/screens/IngredientsScreen';
 import { ReportsScreen } from './src/screens/ReportsScreen';
+import { CookieBackground } from './src/components/CookieBackground';
 
 function MainAppContent() {
   const [activeTab, setActiveTab] = useState<'home' | 'debts' | 'recipes' | 'ingredients' | 'reports'>('home');
@@ -186,6 +187,7 @@ function MainAppContent() {
   return (
     <View style={[styles.safeArea, { paddingTop: safeTopPadding }]}>
       <StatusBar barStyle="light-content" backgroundColor="#09090b" />
+      <CookieBackground />
 
       {/* Notificacion In-App de Actualizacion */}
       {updateInfo && updateInfo.hasUpdate && showInAppBanner && (
@@ -463,7 +465,7 @@ const styles = StyleSheet.create({
   },
   screenContainer: {
     flex: 1,
-    backgroundColor: THEME.colors.bg,
+    backgroundColor: 'transparent',
   },
   bottomNav: {
     flexDirection: 'row',

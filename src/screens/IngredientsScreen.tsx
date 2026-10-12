@@ -477,11 +477,11 @@ const styles = StyleSheet.create({
   screenWrapper: {
     flex: 1,
     position: 'relative',
-    backgroundColor: THEME.colors.bg,
+    backgroundColor: 'transparent',
   },
   container: {
     flex: 1,
-    backgroundColor: THEME.colors.bg,
+    backgroundColor: 'transparent',
   },
   contentContainer: {
     padding: 16,
