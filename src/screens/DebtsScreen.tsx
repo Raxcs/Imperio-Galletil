@@ -327,7 +327,7 @@ export const DebtsScreen: React.FC<DebtsScreenProps> = ({
       onPress={openCreateForm}
       activeOpacity={0.85}
     >
-      <Plus size={26} color="#ffffff" strokeWidth={3} />
+      <Plus size={26} color="#0c0a09" strokeWidth={3} />
     </TouchableOpacity>
 
     {/* Create / Edit Modal */}
@@ -428,7 +428,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: THEME.colors.success,
+    backgroundColor: THEME.colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 8,

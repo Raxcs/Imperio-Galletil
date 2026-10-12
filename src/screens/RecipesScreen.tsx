@@ -10,13 +10,14 @@ import {
   Alert,
   RefreshControl,
 } from 'react-native';
-import { ChevronRight, ChevronLeft, Copy, Pencil } from 'lucide-react-native';
+import { ChevronRight, ChevronLeft, Copy, Pencil, Plus } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { THEME } from '../theme';
 import { Recipe, ExchangeRates } from '../types';
 import {
   fetchRecipes,
   updateRecipeProcessInBackend,
+  createRecipeInBackend,
   setCachedRecipes,
 } from '../services/recipesService';
 
@@ -37,6 +38,57 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
   const [processEditText, setProcessEditText] = useState('');
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // New recipe modal state
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newSubtitle, setNewSubtitle] = useState('');
+  const [newYieldStr, setNewYieldStr] = useState('20');
+  const [newCostUsdStr, setNewCostUsdStr] = useState('5.00');
+  const [newProcess, setNewProcess] = useState('');
+
+  const openCreateRecipeModal = () => {
+    setNewTitle('');
+    setNewSubtitle('');
+    setNewYieldStr('20');
+    setNewCostUsdStr('5.00');
+    setNewProcess('');
+    setIsCreateModalOpen(true);
+  };
+
+  const handleSaveNewRecipe = async () => {
+    const trimmedTitle = newTitle.trim();
+    const yieldNum = parseInt(newYieldStr, 10) || 1;
+    const costUsdNum = parseFloat(newCostUsdStr) || 0;
+
+    if (!trimmedTitle) {
+      Alert.alert('Datos requeridos', 'Por favor ingresa un titulo para la receta.');
+      return;
+    }
+
+    if (yieldNum <= 0) {
+      Alert.alert('Datos requeridos', 'El rendimiento por tanda debe ser mayor a 0.');
+      return;
+    }
+
+    const packCost = Number((costUsdNum / yieldNum).toFixed(2));
+    const newRecipe: Recipe = {
+      id: 'recipe_' + Date.now(),
+      title: trimmedTitle,
+      subtitle: newSubtitle.trim() || 'Receta de la casa',
+      batch_yield: yieldNum,
+      batch_cost_usd: costUsdNum,
+      pack_cost_usd: packCost,
+      process: newProcess.trim() || 'Pasos de preparacion pendientes por definir.',
+      ingredients: [],
+    };
+
+    const updatedList = [...recipes, newRecipe];
+    onRecipesUpdated(updatedList);
+    await setCachedRecipes(updatedList);
+    await createRecipeInBackend(newRecipe);
+    setIsCreateModalOpen(false);
+  };
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -97,7 +149,8 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
   };
 
   return (
-    <ScrollView
+    <View style={styles.screenWrapper}>
+      <ScrollView
       style={styles.container}
       contentContainerStyle={styles.contentContainer}
       showsVerticalScrollIndicator={false}
@@ -164,9 +217,19 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
           );
         })}
       </View>
+    </ScrollView>
 
-      {/* Recipe Details Full Modal */}
-      {selectedRecipe && (
+    {/* Floating Action Button */}
+    <TouchableOpacity
+      style={styles.fabBtn}
+      onPress={openCreateRecipeModal}
+      activeOpacity={0.85}
+    >
+      <Plus size={26} color="#0c0a09" strokeWidth={3} />
+    </TouchableOpacity>
+
+    {/* Recipe Details Full Modal */}
+    {selectedRecipe && (
         <Modal
           visible={!!selectedRecipe}
           animationType="slide"
@@ -340,18 +403,200 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
           </View>
         </Modal>
       )}
-    </ScrollView>
+
+      {/* Create Recipe Modal */}
+      <Modal
+        visible={isCreateModalOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsCreateModalOpen(false)}
+      >
+        <View style={styles.createModalOverlay}>
+          <View style={styles.createModalBox}>
+            <View style={styles.createModalHeader}>
+              <Text style={styles.createModalTitle}>Nueva Receta</Text>
+              <TouchableOpacity onPress={() => setIsCreateModalOpen(false)}>
+                <Text style={styles.createModalCloseText}>Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={styles.fieldWrapper}>
+                <Text style={styles.label}>Titulo de la receta</Text>
+                <TextInput
+                  style={styles.input}
+                  value={newTitle}
+                  onChangeText={setNewTitle}
+                  placeholder="Ej: Galletas Red Velvet"
+                  placeholderTextColor={THEME.colors.textMuted}
+                />
+              </View>
+
+              <View style={styles.fieldWrapper}>
+                <Text style={styles.label}>Descripcion breve</Text>
+                <TextInput
+                  style={styles.input}
+                  value={newSubtitle}
+                  onChangeText={setNewSubtitle}
+                  placeholder="Ej: Receta de la casa horneada"
+                  placeholderTextColor={THEME.colors.textMuted}
+                />
+              </View>
+
+              <View style={styles.rowFields}>
+                <View style={[styles.fieldWrapper, { flex: 1 }]}>
+                  <Text style={styles.label}>Rendimiento (packs)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={newYieldStr}
+                    onChangeText={setNewYieldStr}
+                    keyboardType="numeric"
+                    placeholder="20"
+                    placeholderTextColor={THEME.colors.textMuted}
+                  />
+                </View>
+
+                <View style={[styles.fieldWrapper, { flex: 1 }]}>
+                  <Text style={styles.label}>Costo tanda (USD)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={newCostUsdStr}
+                    onChangeText={setNewCostUsdStr}
+                    keyboardType="numeric"
+                    placeholder="5.00"
+                    placeholderTextColor={THEME.colors.textMuted}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.fieldWrapper}>
+                <Text style={styles.label}>Pasos de preparacion</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  value={newProcess}
+                  onChangeText={setNewProcess}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                  placeholder="Escribe aqui las instrucciones o pasos clave..."
+                  placeholderTextColor={THEME.colors.textMuted}
+                />
+              </View>
+
+              <TouchableOpacity style={styles.saveRecipeBtn} onPress={handleSaveNewRecipe}>
+                <Text style={styles.saveRecipeBtnText}>Guardar Receta</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  screenWrapper: {
+    flex: 1,
+    position: 'relative',
+    backgroundColor: THEME.colors.bg,
+  },
   container: {
     flex: 1,
-    backgroundColor: THEME.colors.bg,
   },
   contentContainer: {
     padding: 16,
     gap: 14,
+    paddingBottom: 90,
+  },
+  fabBtn: {
+    position: 'absolute',
+    bottom: 24,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: THEME.colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 8,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    zIndex: 99,
+  },
+  createModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  createModalBox: {
+    width: '100%',
+    maxWidth: 400,
+    maxHeight: '90%',
+    backgroundColor: THEME.colors.card,
+    borderRadius: THEME.radius.xl,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorderHighlight,
+  },
+  createModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  createModalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: THEME.colors.textPrimary,
+  },
+  createModalCloseText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: THEME.colors.textSecondary,
+  },
+  fieldWrapper: {
+    marginBottom: 12,
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.colors.textSecondary,
+    marginBottom: 6,
+  },
+  input: {
+    backgroundColor: '#0c0a09',
+    borderRadius: THEME.radius.md,
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    fontWeight: '600',
+    color: THEME.colors.textPrimary,
+  },
+  textArea: {
+    minHeight: 80,
+  },
+  rowFields: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  saveRecipeBtn: {
+    backgroundColor: THEME.colors.accent,
+    paddingVertical: 12,
+    borderRadius: THEME.radius.md,
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  saveRecipeBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0c0a09',
   },
   headerInfo: {
     paddingHorizontal: 2,

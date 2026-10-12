@@ -184,3 +184,22 @@ export async function updateRecipeProcessInBackend(
     console.warn('Error saving recipe process in Supabase', err);
   }
 }
+
+export async function createRecipeInBackend(recipe: Recipe): Promise<void> {
+  try {
+    await supabase.from('recipes').insert([
+      {
+        id: recipe.id,
+        title: recipe.title,
+        subtitle: recipe.subtitle,
+        batch_yield: recipe.batch_yield,
+        batch_cost_usd: recipe.batch_cost_usd,
+        pack_cost_usd: recipe.pack_cost_usd,
+        process: recipe.process,
+        ingredients: recipe.ingredients,
+      },
+    ]);
+  } catch (err) {
+    console.warn('Error creating recipe in Supabase', err);
+  }
+}
