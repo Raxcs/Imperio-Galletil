@@ -47,7 +47,6 @@ import { DebtsScreen } from './src/screens/DebtsScreen';
 import { RecipesScreen } from './src/screens/RecipesScreen';
 import { IngredientsScreen } from './src/screens/IngredientsScreen';
 import { ReportsScreen } from './src/screens/ReportsScreen';
-import { CookieBackground } from './src/components/CookieBackground';
 
 function MainAppContent() {
   const [activeTab, setActiveTab] = useState<'home' | 'debts' | 'recipes' | 'ingredients' | 'reports'>('home');
@@ -187,7 +186,6 @@ function MainAppContent() {
   return (
     <View style={[styles.safeArea, { paddingTop: safeTopPadding }]}>
       <StatusBar barStyle="light-content" backgroundColor="#09090b" />
-      <CookieBackground />
 
       {/* Notificacion In-App de Actualizacion */}
       {updateInfo && updateInfo.hasUpdate && showInAppBanner && (
@@ -450,10 +448,58 @@ function MainAppContent() {
   );
 }
 
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class RootErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('Error capturado en RootErrorBoundary:', error, errorInfo);
+  }
+
+  handleReload = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorTitle}>Imperio Galletil</Text>
+          <Text style={styles.errorSubtitle}>Ocurrio un problema al iniciar</Text>
+          <Text style={styles.errorDetail} numberOfLines={4}>
+            {this.state.error?.message || 'Error no especificado'}
+          </Text>
+          <TouchableOpacity style={styles.errorButton} onPress={this.handleReload} activeOpacity={0.8}>
+            <Text style={styles.errorButtonText}>Reiniciar Aplicacion</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   return (
     <SafeAreaProvider>
-      <MainAppContent />
+      <RootErrorBoundary>
+        <MainAppContent />
+      </RootErrorBoundary>
     </SafeAreaProvider>
   );
 }
@@ -465,7 +511,44 @@ const styles = StyleSheet.create({
   },
   screenContainer: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: THEME.colors.bg,
+  },
+  errorContainer: {
+    flex: 1,
+    backgroundColor: '#09090b',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    gap: 12,
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: THEME.colors.accent,
+  },
+  errorSubtitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: THEME.colors.textPrimary,
+    textAlign: 'center',
+  },
+  errorDetail: {
+    fontSize: 12,
+    color: THEME.colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  errorButton: {
+    marginTop: 12,
+    backgroundColor: THEME.colors.accent,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: THEME.radius.md,
+  },
+  errorButtonText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0c0a09',
   },
   bottomNav: {
     flexDirection: 'row',

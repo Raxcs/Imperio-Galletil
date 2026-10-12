@@ -277,7 +277,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: THEME.colors.bg,
   },
   contentContainer: {
     padding: 16,
