@@ -15,6 +15,7 @@ export interface AppUpdateInfo {
 }
 
 const GITHUB_RELEASE_API = 'https://api.github.com/repos/Raxcs/Imperio-Galletil/releases/latest';
+const RELEASE_VERSION_URL = 'https://github.com/Raxcs/Imperio-Galletil/releases/latest/download/version.json';
 const FALLBACK_VERSION_URL = 'https://raw.githubusercontent.com/Raxcs/Imperio-Galletil/main/version.json';
 
 /**
@@ -90,7 +91,35 @@ export async function checkForAppUpdate(): Promise<AppUpdateInfo> {
     clearTimeout(timeoutId);
   }
 
-  // 2. Fallback check with version.json
+  // 2. Direct Release version.json check (Bypasses GitHub API rate limits)
+  const relController = new AbortController();
+  const relTimeoutId = setTimeout(() => relController.abort(), 3500);
+
+  try {
+    const relRes = await fetch(`${RELEASE_VERSION_URL}?t=${Date.now()}`, {
+      signal: relController.signal,
+    });
+
+    if (relRes.ok) {
+      const relData = await relRes.json();
+      const relVersion = relData?.version || '';
+      if (relData && isRemoteVersionNewer(relVersion, CURRENT_APP_VERSION)) {
+        return {
+          hasUpdate: true,
+          version: relData.version,
+          releaseDate: relData.releaseDate,
+          downloadUrl: relData.downloadUrl || 'https://github.com/Raxcs/Imperio-Galletil/releases/latest/download/Imperio-Galletil.apk',
+          changelog: relData.changelog || 'Mejoras y correcciones en la produccion y ventas.',
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Error querying release version.json', err);
+  } finally {
+    clearTimeout(relTimeoutId);
+  }
+
+  // 3. Fallback check with raw repository version.json
   const fbController = new AbortController();
   const fbTimeoutId = setTimeout(() => fbController.abort(), 3500);
 

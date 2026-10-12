@@ -98,3 +98,12 @@ jobs:
             build-output/version.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger Release Webhook Notification
+        if: github.ref == 'refs/heads/main' && env.RELEASE_WEBHOOK_URL != ''
+        run: |
+          curl -X POST -H "Content-Type: application/json" \
+            -d "{\"event\":\"app_release\",\"version\":\"1.0.${{ github.run_number }}\",\"downloadUrl\":\"https://github.com/Raxcs/Imperio-Galletil/releases/latest/download/Imperio-Galletil.apk\"}" \
+            "${{ secrets.RELEASE_WEBHOOK_URL }}" || true
+        env:
+          RELEASE_WEBHOOK_URL: ${{ secrets.RELEASE_WEBHOOK_URL }}

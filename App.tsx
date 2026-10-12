@@ -8,6 +8,7 @@ import {
   Modal,
   Alert,
   Platform,
+  AppState,
 } from 'react-native';
 import {
   SafeAreaProvider,
@@ -19,6 +20,8 @@ import {
   BookOpen as BookOpenIcon,
   Package as PackageIcon,
   ChartBar as ChartBarIcon,
+  Sparkles,
+  X,
 } from 'lucide-react-native';
 import { THEME } from './src/theme';
 import {
@@ -54,6 +57,8 @@ function MainAppContent() {
   const [logs, setLogs] = useState<ProductionLog[]>(INITIAL_PRODUCTION_LOGS);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
+  const [isUpdateModalVisible, setIsUpdateModalVisible] = useState(false);
+  const [showInAppBanner, setShowInAppBanner] = useState(false);
   const [downloadingUpdate, setDownloadingUpdate] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatusText, setDownloadStatusText] = useState('');
@@ -160,24 +165,51 @@ function MainAppContent() {
           }
         })
         .catch(() => {});
-
-      // 3. Deferred check for app update (2 seconds) so it doesn't compete with data sync
-      setTimeout(() => {
-        if (!isMounted) return;
-        checkForAppUpdate()
-          .then((update) => {
-            if (isMounted && update.hasUpdate && update.version !== dismissedVersion) {
-              setUpdateInfo(update);
-            }
-          })
-          .catch(() => {});
-      }, 2000);
     })();
 
     return () => {
       isMounted = false;
     };
   }, []);
+
+  // Update check runner
+  const runUpdateCheck = async (triggerPopup: boolean = false) => {
+    try {
+      const update = await checkForAppUpdate();
+      if (update.hasUpdate) {
+        setUpdateInfo(update);
+        setShowInAppBanner(true);
+        if (triggerPopup && update.version !== dismissedVersion) {
+          setIsUpdateModalVisible(true);
+        }
+      }
+    } catch (err) {
+      // Silently handle update check failure
+    }
+  };
+
+  // Continuous update detection: startup delay, periodic 45s interval, and foreground AppState listener
+  useEffect(() => {
+    const initialTimer = setTimeout(() => {
+      runUpdateCheck(true);
+    }, 2000);
+
+    const intervalTimer = setInterval(() => {
+      runUpdateCheck(false);
+    }, 45000);
+
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        runUpdateCheck(true);
+      }
+    });
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(intervalTimer);
+      subscription.remove();
+    };
+  }, [dismissedVersion]);
 
   const safeTopPadding = Platform.OS === 'android'
     ? Math.max(insets.top, StatusBar.currentHeight || 24) + 8
@@ -186,6 +218,47 @@ function MainAppContent() {
   return (
     <View style={[styles.safeArea, { paddingTop: safeTopPadding }]}>
       <StatusBar barStyle="light-content" backgroundColor="#09090b" />
+
+      {/* Notificacion In-App de Actualizacion */}
+      {updateInfo && updateInfo.hasUpdate && showInAppBanner && (
+        <View style={styles.inAppBannerContainer}>
+          <TouchableOpacity
+            style={styles.inAppBannerTouch}
+            onPress={() => setIsUpdateModalVisible(true)}
+            activeOpacity={0.85}
+          >
+            <View style={styles.inAppBannerLeft}>
+              <View style={styles.inAppBannerBadge}>
+                <Sparkles size={14} color="#0c0a09" strokeWidth={2.5} />
+              </View>
+              <View style={styles.inAppBannerTexts}>
+                <Text style={styles.inAppBannerTitle}>
+                  Nueva actualizacion disponible
+                </Text>
+                <Text style={styles.inAppBannerSub} numberOfLines={1}>
+                  {updateInfo.version || 'Version reciente lista para instalar'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.inAppBannerActions}>
+              <TouchableOpacity
+                style={styles.inAppBannerBtn}
+                onPress={() => setIsUpdateModalVisible(true)}
+              >
+                <Text style={styles.inAppBannerBtnText}>Instalar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.inAppBannerClose}
+                onPress={() => setShowInAppBanner(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <X size={15} color={THEME.colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Main Screen Content */}
       <View style={styles.screenContainer}>
@@ -340,12 +413,12 @@ function MainAppContent() {
       </View>
 
       {/* Modal de Actualizacion Directa */}
-      {updateInfo && updateInfo.hasUpdate && (
+      {updateInfo && updateInfo.hasUpdate && isUpdateModalVisible && (
         <Modal
-          visible={true}
+          visible={isUpdateModalVisible}
           transparent
           animationType="fade"
-          onRequestClose={() => setUpdateInfo(null)}
+          onRequestClose={() => setIsUpdateModalVisible(false)}
         >
           <View style={styles.updateModalOverlay}>
             <View style={styles.updateModalBox}>
@@ -385,7 +458,7 @@ function MainAppContent() {
                       if (updateInfo?.version) {
                         setDismissedVersion(updateInfo.version);
                       }
-                      setUpdateInfo(null);
+                      setIsUpdateModalVisible(false);
                     }}
                   >
                     <Text style={styles.btnDismissUpdateText}>Continuar a la App</Text>
@@ -562,5 +635,64 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: THEME.colors.accent,
+  },
+  inAppBannerContainer: {
+    backgroundColor: '#161413',
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.colors.accent,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  inAppBannerTouch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  inAppBannerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    marginRight: 8,
+  },
+  inAppBannerBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: THEME.colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inAppBannerTexts: {
+    flex: 1,
+  },
+  inAppBannerTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: THEME.colors.accentLight,
+  },
+  inAppBannerSub: {
+    fontSize: 10,
+    color: THEME.colors.textSecondary,
+    marginTop: 1,
+  },
+  inAppBannerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  inAppBannerBtn: {
+    backgroundColor: THEME.colors.accent,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: THEME.radius.sm,
+  },
+  inAppBannerBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#0c0a09',
+  },
+  inAppBannerClose: {
+    padding: 2,
   },
 });
