@@ -234,48 +234,38 @@ export const DebtsScreen: React.FC<DebtsScreenProps> = ({
   const displayedList = activeTab === 'pending' ? pendingDebts : historyDebts;
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={isRefreshing}
-          onRefresh={handleRefresh}
-          tintColor={THEME.colors.accent}
-          colors={[THEME.colors.accent]}
-        />
-      }
-    >
-      {/* Pending Total Banner */}
-      <View style={styles.summaryCard}>
-        <View style={styles.summaryTopRow}>
-          <Text style={styles.summaryTitle}>TOTAL PENDIENTE POR COBRAR</Text>
-          <View style={styles.summaryBadge}>
-            <Text style={styles.summaryBadgeText}>
-              {pendingDebts.length} {pendingDebts.length === 1 ? 'Persona' : 'Personas'}
+    <View style={styles.screenWrapper}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={THEME.colors.accent}
+            colors={[THEME.colors.accent]}
+          />
+        }
+      >
+        {/* Pending Total Banner */}
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryTopRow}>
+            <Text style={styles.summaryTitle}>TOTAL PENDIENTE POR COBRAR</Text>
+          </View>
+
+          <View style={styles.summaryAmountRow}>
+            <Text style={styles.summaryTotalVes}>
+              Bs. {totalPendingVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
+            <Text style={styles.summaryTotalUsd}>
+              ${totalPendingUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
             </Text>
           </View>
+          <Text style={styles.summaryCaption}>Dinero fiado pendiente por ingresar a caja</Text>
         </View>
 
-        <View style={styles.summaryAmountRow}>
-          <Text style={styles.summaryTotalVes}>
-            Bs. {totalPendingVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </Text>
-          <Text style={styles.summaryTotalUsd}>
-            ${totalPendingUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-          </Text>
-        </View>
-        <Text style={styles.summaryCaption}>Dinero fiado pendiente por ingresar a caja</Text>
-      </View>
-
-      {/* Button Open Add Debt */}
-      <TouchableOpacity style={styles.addBtn} onPress={openCreateForm}>
-        <Plus size={16} color={THEME.colors.accent} strokeWidth={2.5} />
-        <Text style={styles.addBtnText}>Añadir Persona Pendiente</Text>
-      </TouchableOpacity>
-
-      {/* Tab Switcher: Pendientes vs Historial */}
+        {/* Tab Switcher: Pendientes vs Historial */}
       <View style={styles.tabSwitcher}>
         <TouchableOpacity
           style={[styles.tabBtn, activeTab === 'pending' && styles.tabBtnActive]}
@@ -329,92 +319,124 @@ export const DebtsScreen: React.FC<DebtsScreenProps> = ({
           displayedList.map(renderDebtItem)
         )}
       </View>
+    </ScrollView>
 
-      {/* Create / Edit Modal */}
-      <Modal
-        visible={isFormVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setIsFormVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                {editingDebt ? 'Editar Cuenta por Cobrar' : 'Registrar Cuenta por Cobrar'}
-              </Text>
-              <TouchableOpacity onPress={() => setIsFormVisible(false)}>
-                <Text style={styles.modalCloseText}>Cerrar</Text>
-              </TouchableOpacity>
-            </View>
+    {/* Floating Action Button */}
+    <TouchableOpacity
+      style={styles.fabBtn}
+      onPress={openCreateForm}
+      activeOpacity={0.85}
+    >
+      <Plus size={26} color="#ffffff" strokeWidth={3} />
+    </TouchableOpacity>
 
-            <View style={styles.fieldWrapper}>
-              <Text style={styles.label}>Nombre de la persona</Text>
-              <TextInput
-                style={styles.input}
-                value={name}
-                onChangeText={setName}
-                placeholder="Ejemplo: Maria Gonzalez"
-                placeholderTextColor={THEME.colors.textMuted}
-              />
-            </View>
-
-            <View style={styles.rowFields}>
-              <View style={[styles.fieldWrapper, { flex: 1 }]}>
-                <Text style={styles.label}>Monto en Bolivares</Text>
-                <TextInput
-                  style={styles.input}
-                  value={amountStr}
-                  onChangeText={setAmountStr}
-                  keyboardType="numeric"
-                  placeholder="Ej: 1000"
-                  placeholderTextColor={THEME.colors.textMuted}
-                />
-              </View>
-
-              <View style={[styles.fieldWrapper, { flex: 1 }]}>
-                <Text style={styles.label}>Fecha (AAAA/MM/DD)</Text>
-                <TextInput
-                  style={styles.input}
-                  value={dateStr}
-                  onChangeText={setDateStr}
-                  placeholder="2026/10/11"
-                  placeholderTextColor={THEME.colors.textMuted}
-                />
-              </View>
-            </View>
-
-            <View style={styles.fieldWrapper}>
-              <Text style={styles.label}>Nota o detalle</Text>
-              <TextInput
-                style={styles.input}
-                value={note}
-                onChangeText={setNote}
-                placeholder="Ejemplo: Se llevo 1 pack brownie, paga el viernes"
-                placeholderTextColor={THEME.colors.textMuted}
-              />
-            </View>
-
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSaveDebt}>
-              <Text style={styles.saveBtnText}>
-                {editingDebt ? 'Guardar Cambios' : 'Guardar en Lista de Pendientes'}
-              </Text>
+    {/* Create / Edit Modal */}
+    <Modal
+      visible={isFormVisible}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setIsFormVisible(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalBox}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>
+              {editingDebt ? 'Editar Cuenta por Cobrar' : 'Registrar Cuenta por Cobrar'}
+            </Text>
+            <TouchableOpacity onPress={() => setIsFormVisible(false)}>
+              <Text style={styles.modalCloseText}>Cerrar</Text>
             </TouchableOpacity>
           </View>
+
+          <View style={styles.fieldWrapper}>
+            <Text style={styles.label}>Nombre de la persona</Text>
+            <TextInput
+              style={styles.input}
+              value={name}
+              onChangeText={setName}
+              placeholder="Ejemplo: Maria Gonzalez"
+              placeholderTextColor={THEME.colors.textMuted}
+            />
+          </View>
+
+          <View style={styles.rowFields}>
+            <View style={[styles.fieldWrapper, { flex: 1 }]}>
+              <Text style={styles.label}>Monto en Bolivares</Text>
+              <TextInput
+                style={styles.input}
+                value={amountStr}
+                onChangeText={setAmountStr}
+                keyboardType="numeric"
+                placeholder="Ej: 1000"
+                placeholderTextColor={THEME.colors.textMuted}
+              />
+            </View>
+
+            <View style={[styles.fieldWrapper, { flex: 1 }]}>
+              <Text style={styles.label}>Fecha (AAAA/MM/DD)</Text>
+              <TextInput
+                style={styles.input}
+                value={dateStr}
+                onChangeText={setDateStr}
+                placeholder="2026/10/11"
+                placeholderTextColor={THEME.colors.textMuted}
+              />
+            </View>
+          </View>
+
+          <View style={styles.fieldWrapper}>
+            <Text style={styles.label}>Nota o detalle</Text>
+            <TextInput
+              style={styles.input}
+              value={note}
+              onChangeText={setNote}
+              placeholder="Ejemplo: Se llevo 1 pack brownie, paga el viernes"
+              placeholderTextColor={THEME.colors.textMuted}
+            />
+          </View>
+
+          <TouchableOpacity style={styles.saveBtn} onPress={handleSaveDebt}>
+            <Text style={styles.saveBtnText}>
+              {editingDebt ? 'Guardar Cambios' : 'Guardar en Lista de Pendientes'}
+            </Text>
+          </TouchableOpacity>
         </View>
-      </Modal>
-    </ScrollView>
+      </View>
+    </Modal>
+  </View>
   );
 };
 
 const styles = StyleSheet.create({
+  screenWrapper: {
+    flex: 1,
+    position: 'relative',
+    backgroundColor: THEME.colors.bg,
+  },
   container: {
     flex: 1,
-    backgroundColor: THEME.colors.bg,
   },
   contentContainer: {
     padding: 16,
     gap: 14,
+    paddingBottom: 90,
+  },
+  fabBtn: {
+    position: 'absolute',
+    bottom: 24,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: THEME.colors.success,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 8,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    zIndex: 99,
   },
   summaryCard: {
     backgroundColor: THEME.colors.card,
@@ -435,17 +457,6 @@ const styles = StyleSheet.create({
     color: THEME.colors.accentLight,
     letterSpacing: 0.5,
   },
-  summaryBadge: {
-    backgroundColor: THEME.colors.accentDark,
-    borderRadius: THEME.radius.full,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  summaryBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: THEME.colors.accentLight,
-  },
   summaryAmountRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -465,22 +476,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: THEME.colors.textSecondary,
     marginTop: 4,
-  },
-  addBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: THEME.colors.card,
-    borderWidth: 1,
-    borderColor: THEME.colors.cardBorder,
-    borderRadius: THEME.radius.md,
-    paddingVertical: 12,
-  },
-  addBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: THEME.colors.accentLight,
   },
   tabSwitcher: {
     flexDirection: 'row',
