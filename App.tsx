@@ -53,6 +53,7 @@ function MainAppContent() {
   const [recipes, setRecipes] = useState<Recipe[]>(INITIAL_RECIPES);
   const [logs, setLogs] = useState<ProductionLog[]>(INITIAL_PRODUCTION_LOGS);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
+  const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
   const [downloadingUpdate, setDownloadingUpdate] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatusText, setDownloadStatusText] = useState('');
@@ -165,7 +166,7 @@ function MainAppContent() {
         if (!isMounted) return;
         checkForAppUpdate()
           .then((update) => {
-            if (isMounted && update.hasUpdate) {
+            if (isMounted && update.hasUpdate && update.version !== dismissedVersion) {
               setUpdateInfo(update);
             }
           })
@@ -380,7 +381,12 @@ function MainAppContent() {
                 <View style={styles.updateModalButtons}>
                   <TouchableOpacity
                     style={styles.btnDismissUpdate}
-                    onPress={() => setUpdateInfo(null)}
+                    onPress={() => {
+                      if (updateInfo?.version) {
+                        setDismissedVersion(updateInfo.version);
+                      }
+                      setUpdateInfo(null);
+                    }}
                   >
                     <Text style={styles.btnDismissUpdateText}>Continuar a la App</Text>
                   </TouchableOpacity>

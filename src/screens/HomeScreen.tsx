@@ -13,13 +13,7 @@ import {
 import { THEME } from '../theme';
 import { ExchangeRates } from '../types';
 import { syncBcvRates } from '../services/exchangeRatesService';
-import {
-  checkForAppUpdate,
-  openAppUpdateDownload,
-  downloadAndInstallApk,
-  AppUpdateInfo,
-  CURRENT_APP_VERSION,
-} from '../services/updateService';
+
 
 interface HomeScreenProps {
   rates: ExchangeRates;
@@ -113,51 +107,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   };
 
-  const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
-  const [isDownloadingApk, setIsDownloadingApk] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState(0);
-  const [downloadStatusText, setDownloadStatusText] = useState('');
 
-  const handleStartHomeScreenUpdate = async () => {
-    if (!updateInfo?.downloadUrl) return;
-    setIsDownloadingApk(true);
-    setDownloadProgress(0);
-    setDownloadStatusText('Conectando...');
-
-    const result = await downloadAndInstallApk(updateInfo.downloadUrl, (ratio) => {
-      setDownloadProgress(ratio);
-      if (ratio >= 1) {
-        setDownloadStatusText('Iniciando instalador nativo...');
-      } else {
-        setDownloadStatusText(`Descargando: ${Math.round(ratio * 100)}%`);
-      }
-    });
-
-    if (!result.success) {
-      setIsDownloadingApk(false);
-      Alert.alert(
-        'Aviso de Descarga',
-        'No fue posible iniciar la instalacion nativa. ¿Deseas descargar desde el navegador?',
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          {
-            text: 'Abrir Navegador',
-            onPress: () => updateInfo.downloadUrl && openAppUpdateDownload(updateInfo.downloadUrl),
-          },
-        ]
-      );
-    }
-  };
-
-  React.useEffect(() => {
-    const timer = setTimeout(async () => {
-      const info = await checkForAppUpdate();
-      if (info.hasUpdate) {
-        setUpdateInfo(info);
-      }
-    }, 2500);
-    return () => clearTimeout(timer);
-  }, []);
 
   const handlePullRefresh = async () => {
     setIsSyncingRates(true);
@@ -182,42 +132,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         />
       }
     >
-      {/* App Update Notification Card */}
-      {updateInfo && updateInfo.hasUpdate && (
-        <View style={styles.updateCard}>
-          <View style={styles.updateCardHeader}>
-            <View>
-              <Text style={styles.updateBadge}>ACTUALIZACION DISPONIBLE</Text>
-              <Text style={styles.updateTitle}>Version {updateInfo.version}</Text>
-            </View>
-            <TouchableOpacity onPress={() => setUpdateInfo(null)}>
-              <Text style={styles.updateDismissText}>Omitir</Text>
-            </TouchableOpacity>
-          </View>
-          {!!updateInfo.changelog && (
-            <Text style={styles.updateChangelog}>{updateInfo.changelog}</Text>
-          )}
 
-          {isDownloadingApk ? (
-            <View style={styles.cardDownloadProgressSection}>
-              <View style={styles.cardDownloadProgressBarTrack}>
-                <View style={[styles.cardDownloadProgressBarFill, { width: `${Math.round(downloadProgress * 100)}%` }]} />
-              </View>
-              <View style={styles.cardDownloadProgressRow}>
-                <Text style={styles.cardDownloadStatusText}>{downloadStatusText}</Text>
-                <Text style={styles.cardDownloadPercentText}>{Math.round(downloadProgress * 100)}%</Text>
-              </View>
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.updateActionBtn}
-              onPress={handleStartHomeScreenUpdate}
-            >
-              <Text style={styles.updateActionBtnText}>Actualizar Directamente</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
 
       {/* Official BCV Rates Card - Tap to Sync */}
       <TouchableOpacity
@@ -538,82 +453,4 @@ const styles = StyleSheet.create({
     color: THEME.colors.textPrimary,
   },
 
-  updateCard: {
-    backgroundColor: THEME.colors.card,
-    borderRadius: THEME.radius.lg,
-    borderWidth: 1,
-    borderColor: THEME.colors.accent,
-    padding: 16,
-    gap: 8,
-  },
-  updateCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  updateBadge: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: THEME.colors.accent,
-    letterSpacing: 0.5,
-  },
-  updateTitle: {
-    fontSize: 15,
-    fontWeight: '900',
-    color: THEME.colors.textPrimary,
-    marginTop: 2,
-  },
-  updateDismissText: {
-    fontSize: 11,
-    color: THEME.colors.textSecondary,
-    fontWeight: '600',
-  },
-  updateChangelog: {
-    fontSize: 11,
-    color: THEME.colors.textSecondary,
-    lineHeight: 16,
-  },
-  updateActionBtn: {
-    backgroundColor: THEME.colors.accent,
-    borderRadius: THEME.radius.md,
-    paddingVertical: 10,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  updateActionBtnText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#0c0a09',
-  },
-  cardDownloadProgressSection: {
-    marginTop: 6,
-    gap: 8,
-  },
-  cardDownloadProgressBarTrack: {
-    height: 8,
-    backgroundColor: '#0c0a09',
-    borderRadius: THEME.radius.full,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: THEME.colors.cardBorder,
-  },
-  cardDownloadProgressBarFill: {
-    height: '100%',
-    backgroundColor: THEME.colors.accent,
-    borderRadius: THEME.radius.full,
-  },
-  cardDownloadProgressRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  cardDownloadStatusText: {
-    fontSize: 11,
-    color: THEME.colors.textSecondary,
-  },
-  cardDownloadPercentText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: THEME.colors.accent,
-  },
 });

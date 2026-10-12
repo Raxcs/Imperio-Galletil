@@ -2,7 +2,7 @@
   "expo": {
     "name": "imperio-galletil",
     "slug": "imperio-galletil",
-    "version": "1.0.0",
+    "version": "1.0.8",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -16,7 +16,7 @@
     },
     "android": {
       "package": "com.imperio.galletil",
-      "versionCode": 1,
+      "versionCode": 8,
       "permissions": [
         "REQUEST_INSTALL_PACKAGES"
       ],

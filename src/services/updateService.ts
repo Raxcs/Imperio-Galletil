@@ -3,8 +3,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
 
 // Build timestamp of the current compiled app
-export const CURRENT_BUILD_TIMESTAMP = '2026-10-11T04:34:00Z';
-export const CURRENT_APP_VERSION = '1.0.0';
+export const CURRENT_BUILD_TIMESTAMP = '2026-10-12T19:40:00Z';
+export const CURRENT_APP_VERSION = '1.0.8';
 
 export interface AppUpdateInfo {
   hasUpdate: boolean;
@@ -16,6 +16,34 @@ export interface AppUpdateInfo {
 
 const GITHUB_RELEASE_API = 'https://api.github.com/repos/Raxcs/Imperio-Galletil/releases/latest';
 const FALLBACK_VERSION_URL = 'https://raw.githubusercontent.com/Raxcs/Imperio-Galletil/main/version.json';
+
+/**
+ * Compara dos versiones semanticas y devuelve true si la version remota es estrictamente mayor.
+ */
+export function isRemoteVersionNewer(
+  remoteVersionString: string,
+  currentVersionString: string = CURRENT_APP_VERSION
+): boolean {
+  const parseNumbers = (str: string): number[] => {
+    if (!str) return [0, 0, 0];
+    const match = str.match(/(\d+)\.(\d+)(?:\.(\d+))?/);
+    if (!match) return [0, 0, 0];
+    return [
+      parseInt(match[1], 10) || 0,
+      parseInt(match[2], 10) || 0,
+      parseInt(match[3], 10) || 0,
+    ];
+  };
+
+  const remote = parseNumbers(remoteVersionString);
+  const current = parseNumbers(currentVersionString);
+
+  for (let i = 0; i < 3; i++) {
+    if (remote[i] > current[i]) return true;
+    if (remote[i] < current[i]) return false;
+  }
+  return false;
+}
 
 export async function checkForAppUpdate(): Promise<AppUpdateInfo> {
   const controller = new AbortController();
@@ -33,12 +61,11 @@ export async function checkForAppUpdate(): Promise<AppUpdateInfo> {
 
     if (res.ok) {
       const data = await res.json();
-      if (data && data.published_at && Array.isArray(data.assets)) {
-        const publishedDate = new Date(data.published_at).getTime();
-        const localDate = new Date(CURRENT_BUILD_TIMESTAMP).getTime();
+      if (data && Array.isArray(data.assets)) {
+        const remoteVersionName = data.name || data.tag_name || '';
+        const isNewer = isRemoteVersionNewer(remoteVersionName, CURRENT_APP_VERSION);
 
-        // If the GitHub release was published after this app build was compiled
-        if (publishedDate > localDate) {
+        if (isNewer) {
           const apkAsset = data.assets.find((a: any) =>
             typeof a.name === 'string' && a.name.endsWith('.apk')
           );
@@ -49,7 +76,7 @@ export async function checkForAppUpdate(): Promise<AppUpdateInfo> {
 
           return {
             hasUpdate: true,
-            version: data.name || data.tag_name || 'Nueva version',
+            version: remoteVersionName,
             releaseDate: data.published_at ? data.published_at.split('T')[0] : '',
             downloadUrl,
             changelog: data.body || 'Mejoras y correcciones en la produccion y ventas.',
@@ -74,7 +101,8 @@ export async function checkForAppUpdate(): Promise<AppUpdateInfo> {
 
     if (fbRes.ok) {
       const fbData = await fbRes.json();
-      if (fbData && fbData.buildNumber && fbData.buildNumber > 1) {
+      const fbVersion = fbData?.version || '';
+      if (fbData && isRemoteVersionNewer(fbVersion, CURRENT_APP_VERSION)) {
         return {
           hasUpdate: true,
           version: fbData.version,
