@@ -7,6 +7,7 @@ import {
   StatusBar,
   Modal,
   Alert,
+  Platform,
 } from 'react-native';
 import {
   SafeAreaProvider,
@@ -177,8 +178,12 @@ function MainAppContent() {
     };
   }, []);
 
+  const safeTopPadding = Platform.OS === 'android'
+    ? Math.max(insets.top, StatusBar.currentHeight || 24) + 8
+    : Math.max(insets.top, 16);
+
   return (
-    <View style={[styles.safeArea, { paddingTop: insets.top }]}>
+    <View style={[styles.safeArea, { paddingTop: safeTopPadding }]}>
       <StatusBar barStyle="light-content" backgroundColor="#09090b" />
 
       {/* Main Screen Content */}

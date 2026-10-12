@@ -33,10 +33,48 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onNavigateToProduction,
 }) => {
   const [baseCurrency, setBaseCurrency] = useState<'USD' | 'VES' | 'EUR'>('USD');
-  const [amountStr, setAmountStr] = useState<string>('2');
+  const [amountStr, setAmountStr] = useState<string>('0');
   const [isSyncingRates, setIsSyncingRates] = useState(false);
 
   const numAmount = parseFloat(amountStr) || 0;
+
+  const handleCurrencyChange = (newCurrency: 'USD' | 'VES' | 'EUR') => {
+    if (newCurrency === baseCurrency) return;
+
+    const currentVal = parseFloat(amountStr) || 0;
+    if (currentVal === 0) {
+      setBaseCurrency(newCurrency);
+      setAmountStr('0');
+      return;
+    }
+
+    let converted = 0;
+    if (baseCurrency === 'USD') {
+      if (newCurrency === 'VES') {
+        converted = currentVal * rates.usd_ves;
+      } else if (newCurrency === 'EUR') {
+        const inVes = currentVal * rates.usd_ves;
+        converted = inVes / rates.eur_ves;
+      }
+    } else if (baseCurrency === 'VES') {
+      if (newCurrency === 'USD') {
+        converted = currentVal / rates.usd_ves;
+      } else if (newCurrency === 'EUR') {
+        converted = currentVal / rates.eur_ves;
+      }
+    } else if (baseCurrency === 'EUR') {
+      if (newCurrency === 'USD') {
+        const inVes = currentVal * rates.eur_ves;
+        converted = inVes / rates.usd_ves;
+      } else if (newCurrency === 'VES') {
+        converted = currentVal * rates.eur_ves;
+      }
+    }
+
+    const formatted = converted % 1 === 0 ? converted.toFixed(0) : converted.toFixed(2);
+    setBaseCurrency(newCurrency);
+    setAmountStr(formatted);
+  };
 
   // Conversions
   let displayVes = 0;
@@ -230,9 +268,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>Conversor Rapido de Cobro</Text>
-          <View style={styles.badgePill}>
-            <Text style={styles.badgePillText}>Calculo en vivo</Text>
-          </View>
         </View>
 
         {/* Currency Switcher */}
@@ -243,7 +278,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               <TouchableOpacity
                 key={curr}
                 style={[styles.currencyBtn, isActive && styles.currencyBtnActive]}
-                onPress={() => setBaseCurrency(curr)}
+                onPress={() => handleCurrencyChange(curr)}
               >
                 <Text style={[styles.currencyBtnText, isActive && styles.currencyBtnTextActive]}>
                   {curr}
@@ -320,21 +355,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           )}
         </View>
       </View>
-
-      {/* Quick Action Banner */}
-      <TouchableOpacity
-        style={styles.bannerAction}
-        onPress={onNavigateToProduction}
-        activeOpacity={0.8}
-      >
-        <View>
-          <Text style={styles.bannerTitle}>Produccion del Dia</Text>
-          <Text style={styles.bannerSubtitle}>Calcula rentabilidad y registra packs de galletas</Text>
-        </View>
-        <View style={styles.bannerBadge}>
-          <Text style={styles.bannerBadgeText}>Ver Reporte</Text>
-        </View>
-      </TouchableOpacity>
     </ScrollView>
   );
 };
@@ -517,37 +537,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: THEME.colors.textPrimary,
   },
-  bannerAction: {
-    backgroundColor: THEME.colors.card,
-    borderRadius: THEME.radius.lg,
-    borderWidth: 1,
-    borderColor: THEME.colors.cardBorderHighlight,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  bannerTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: THEME.colors.textPrimary,
-    marginBottom: 2,
-  },
-  bannerSubtitle: {
-    fontSize: 11,
-    color: THEME.colors.textSecondary,
-  },
-  bannerBadge: {
-    backgroundColor: THEME.colors.accent,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: THEME.radius.md,
-  },
-  bannerBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#0c0a09',
-  },
+
   updateCard: {
     backgroundColor: THEME.colors.card,
     borderRadius: THEME.radius.lg,
