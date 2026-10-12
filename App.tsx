@@ -117,7 +117,7 @@ function MainAppContent() {
 
         if (!isMounted) return;
         if (cachedRates) setRates(cachedRates);
-        if (cachedDebts && cachedDebts.length > 0) setDebts(cachedDebts);
+        if (Array.isArray(cachedDebts)) setDebts(cachedDebts);
         if (cachedIngredients && cachedIngredients.length > 0) setIngredients(cachedIngredients);
         if (cachedRecipes && cachedRecipes.length > 0) setRecipes(cachedRecipes);
         if (cachedLogs && cachedLogs.length > 0) setLogs(cachedLogs);
@@ -128,7 +128,7 @@ function MainAppContent() {
       // 2. Decoupled background cloud sync (each finishes on its own without blocking others)
       fetchDebts()
         .then((freshDebts) => {
-          if (isMounted && freshDebts && freshDebts.length > 0) {
+          if (isMounted && Array.isArray(freshDebts)) {
             setDebts(freshDebts);
           }
         })

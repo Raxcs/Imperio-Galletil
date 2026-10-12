@@ -10,12 +10,13 @@ import {
   Modal,
   RefreshControl,
 } from 'react-native';
-import { Plus, Check } from 'lucide-react-native';
+import { Plus, Check, Trash2 } from 'lucide-react-native';
 import { THEME } from '../theme';
 import { Debt, ExchangeRates } from '../types';
 import {
   fetchDebts,
   saveDebtInBackend,
+  deleteDebtInBackend,
   togglePaidDebtInBackend,
   clearPaidDebtsInBackend,
   AUTO_PURGE_DAYS,
@@ -122,6 +123,30 @@ export const DebtsScreen: React.FC<DebtsScreenProps> = ({
     }
 
     setIsFormVisible(false);
+  };
+
+  const handleDeleteDebt = () => {
+    if (!editingDebt) return;
+    Alert.alert(
+      'Eliminar Cuenta',
+      `¿Deseas eliminar permanentemente la cuenta de ${editingDebt.name}?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            const debtIdToDelete = editingDebt.id;
+            const updated = debts.filter((d) => d.id !== debtIdToDelete);
+            onDebtsUpdated(updated);
+            await setCachedDebts(updated);
+            await deleteDebtInBackend(debtIdToDelete);
+            setIsFormVisible(false);
+            setEditingDebt(null);
+          },
+        },
+      ]
+    );
   };
 
   const handleTogglePaid = async (debt: Debt) => {
@@ -394,6 +419,13 @@ export const DebtsScreen: React.FC<DebtsScreenProps> = ({
               placeholderTextColor={THEME.colors.textMuted}
             />
           </View>
+
+          {editingDebt && (
+            <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteDebt}>
+              <Trash2 size={16} color="#ef4444" strokeWidth={2} />
+              <Text style={styles.deleteBtnText}>Eliminar Cuenta</Text>
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity style={styles.saveBtn} onPress={handleSaveDebt}>
             <Text style={styles.saveBtnText}>
@@ -696,5 +728,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: '#0c0a09',
+  },
+  deleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#0c0a09',
+    borderRadius: THEME.radius.md,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#7f1d1d',
+    marginTop: 6,
+  },
+  deleteBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#ef4444',
   },
 });

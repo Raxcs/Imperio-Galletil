@@ -5,44 +5,7 @@ import { Debt } from '../types';
 const STORAGE_KEY = '@imperio_galletil_debts';
 export const AUTO_PURGE_DAYS = 30;
 
-export const INITIAL_DEBTS: Debt[] = [
-  {
-    id: '1',
-    name: 'Maria Fernandez',
-    amount: 1700,
-    debt_date: '2026-10-07',
-    note: '2 packs de galletas clasicas (paga por pago movil)',
-    paid: false,
-    paid_date: null,
-  },
-  {
-    id: '2',
-    name: 'Carlos Mendoza',
-    amount: 2500,
-    debt_date: '2026-10-09',
-    note: '1 pack de brownie con galleta, dijo que el lunes',
-    paid: false,
-    paid_date: null,
-  },
-  {
-    id: '3',
-    name: 'Alejandro Ruiz',
-    amount: 500,
-    debt_date: '2026-10-10',
-    note: 'Le faltaban 500 Bs en efectivo del pack',
-    paid: false,
-    paid_date: null,
-  },
-  {
-    id: '4',
-    name: 'Pedro Ramirez',
-    amount: 1200,
-    debt_date: '2026-10-02',
-    note: 'Cobrado completo por transferencia',
-    paid: true,
-    paid_date: '2026-10-09',
-  },
-];
+export const INITIAL_DEBTS: Debt[] = [];
 
 export async function getCachedDebts(): Promise<Debt[]> {
   try {
@@ -56,7 +19,7 @@ export async function getCachedDebts(): Promise<Debt[]> {
   } catch (err) {
     console.warn('Error reading debts cache', err);
   }
-  return INITIAL_DEBTS;
+  return [];
 }
 
 export async function setCachedDebts(items: Debt[]): Promise<void> {
@@ -90,7 +53,8 @@ export function purgeOldDebts(items: Debt[]): { valid: Debt[]; expiredIds: strin
 }
 
 export async function fetchDebts(): Promise<Debt[]> {
-  let list: Debt[] = [];
+  const localDebts = await getCachedDebts();
+  let remoteList: Debt[] = [];
   let isFetchSuccess = false;
 
   try {
@@ -104,7 +68,7 @@ export async function fetchDebts(): Promise<Debt[]> {
 
     if (!error && Array.isArray(data)) {
       isFetchSuccess = true;
-      list = data.map((item: any) => ({
+      remoteList = data.map((item: any) => ({
         id: String(item.id),
         name: item.name,
         amount: Number(item.amount),
@@ -125,7 +89,7 @@ export async function fetchDebts(): Promise<Debt[]> {
 
       if (!fbError && Array.isArray(fbData)) {
         isFetchSuccess = true;
-        list = fbData.map((item: any) => ({
+        remoteList = fbData.map((item: any) => ({
           id: String(item.id),
           name: item.name,
           amount: Number(item.amount),
@@ -138,25 +102,49 @@ export async function fetchDebts(): Promise<Debt[]> {
       }
     }
   } catch (err) {
-    console.warn('Error fetching debts from Supabase, using cache', err);
+    console.warn('Error fetching debts from Supabase, preserving local cache', err);
   }
 
-  if (!isFetchSuccess || list.length === 0) {
-    list = await getCachedDebts();
+  // If remote fetch failed, preserve and return local cache
+  if (!isFetchSuccess) {
+    const { valid } = purgeOldDebts(localDebts);
+    await setCachedDebts(valid);
+    return valid;
+  }
+
+  // Merge remote records with any local offline/unsynced records
+  const remoteMap = new Map(remoteList.map((d) => [d.id, d]));
+  const merged: Debt[] = [...remoteList];
+
+  for (const local of localDebts) {
+    if (!remoteMap.has(local.id)) {
+      if (local.id.startsWith('temp_') || local.id.startsWith('local_')) {
+        merged.unshift(local);
+        saveDebtInBackend(local).catch(() => {});
+      }
+    }
   }
 
   // Auto-purge debts older than 30 days
-  const { valid, expiredIds } = purgeOldDebts(list);
+  const { valid, expiredIds } = purgeOldDebts(merged);
   if (expiredIds.length > 0) {
     // Clean up expired debts in background
     for (const expId of expiredIds) {
-      supabase.from('debts').delete().eq('id', expId).then(() => {});
-      supabase.from('deudas').delete().eq('id', expId).then(() => {});
+      deleteDebtInBackend(expId).catch(() => {});
     }
   }
 
   await setCachedDebts(valid);
   return valid;
+}
+
+export async function deleteDebtInBackend(id: string): Promise<void> {
+  try {
+    await supabase.from('debts').delete().eq('id', id);
+    await supabase.from('deudas').delete().eq('id', id);
+  } catch (err) {
+    console.warn('Error deleting debt in Supabase', err);
+  }
 }
 
 export async function saveDebtInBackend(
