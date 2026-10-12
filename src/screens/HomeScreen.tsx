@@ -6,14 +6,13 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
-  Modal,
   Alert,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
-import { RefreshCw } from 'lucide-react-native';
 import { THEME } from '../theme';
 import { ExchangeRates } from '../types';
-import { saveExchangeRates, syncBcvRates } from '../services/exchangeRatesService';
+import { syncBcvRates } from '../services/exchangeRatesService';
 import {
   checkForAppUpdate,
   openAppUpdateDownload,
@@ -35,11 +34,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 }) => {
   const [baseCurrency, setBaseCurrency] = useState<'USD' | 'VES' | 'EUR'>('USD');
   const [amountStr, setAmountStr] = useState<string>('2');
-  
-  // Rate edit modal state
-  const [isRateModalOpen, setIsRateModalOpen] = useState(false);
-  const [tempUsdRate, setTempUsdRate] = useState(rates.usd_ves.toString());
-  const [tempEurRate, setTempEurRate] = useState(rates.eur_ves.toString());
+  const [isSyncingRates, setIsSyncingRates] = useState(false);
 
   const numAmount = parseFloat(amountStr) || 0;
 
@@ -61,17 +56,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     displayVes = numAmount * rates.eur_ves;
     displayUsd = displayVes / rates.usd_ves;
   }
-
-  const handleSaveRates = async () => {
-    const newUsd = parseFloat(tempUsdRate) || rates.usd_ves;
-    const newEur = parseFloat(tempEurRate) || rates.eur_ves;
-    const updated: ExchangeRates = { usd_ves: newUsd, eur_ves: newEur };
-    await saveExchangeRates(updated);
-    onRatesUpdated(updated);
-    setIsRateModalOpen(false);
-  };
-
-  const [isSyncingRates, setIsSyncingRates] = useState(false);
 
   const handleSyncBcv = async () => {
     setIsSyncingRates(true);
@@ -197,69 +181,50 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </View>
       )}
 
-      {/* Official BCV Rates Card */}
-      <View style={styles.card}>
+      {/* Official BCV Rates Card - Tap to Sync */}
+      <TouchableOpacity
+        style={[styles.card, styles.ratesCardTouchable]}
+        onPress={handleSyncBcv}
+        disabled={isSyncingRates}
+        activeOpacity={0.75}
+      >
         <View style={styles.cardHeader}>
-          <Text style={styles.cardSubtitle}>TASAS OFICIALES BCV</Text>
-          <View style={styles.cardHeaderActions}>
-            <TouchableOpacity
-              style={[styles.syncRateBtn, isSyncingRates && styles.syncRateBtnDisabled]}
-              onPress={handleSyncBcv}
-              disabled={isSyncingRates}
-              activeOpacity={0.7}
-            >
-              <RefreshCw size={11} color={THEME.colors.accent} strokeWidth={2.5} />
-              <Text style={styles.syncRateBtnText}>
-                {isSyncingRates ? 'Sincronizando' : 'Sincronizar BCV'}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.rateStatusPill}
-              onPress={() => {
-                setTempUsdRate(rates.usd_ves.toString());
-                setTempEurRate(rates.eur_ves.toString());
-                setIsRateModalOpen(true);
-              }}
-            >
-              <View style={styles.statusDot} />
-              <Text style={styles.rateStatusText}>Editar</Text>
-            </TouchableOpacity>
+          <View>
+            <Text style={styles.cardSubtitle}>TASAS OFICIALES BCV</Text>
+            <Text style={styles.cardTapHint}>
+              {isSyncingRates ? 'Consultando cotizacion oficial...' : 'Toca para actualizar en vivo'}
+            </Text>
+          </View>
+          <View style={styles.rateStatusPill}>
+            {isSyncingRates ? (
+              <ActivityIndicator size="small" color={THEME.colors.accent} />
+            ) : (
+              <>
+                <View style={styles.statusDot} />
+                <Text style={styles.rateStatusText}>En vivo</Text>
+              </>
+            )}
           </View>
         </View>
 
         <View style={styles.ratesGrid}>
-          <TouchableOpacity
-            style={styles.rateSubCard}
-            onPress={() => {
-              setTempUsdRate(rates.usd_ves.toString());
-              setTempEurRate(rates.eur_ves.toString());
-              setIsRateModalOpen(true);
-            }}
-          >
+          <View style={styles.rateSubCard}>
             <Text style={styles.rateLabel}>Dolar Oficial</Text>
             <Text style={styles.rateValue}>
               Bs. {rates.usd_ves.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Text>
             <Text style={styles.rateCurrency}>1 USD</Text>
-          </TouchableOpacity>
+          </View>
 
-          <TouchableOpacity
-            style={styles.rateSubCard}
-            onPress={() => {
-              setTempUsdRate(rates.usd_ves.toString());
-              setTempEurRate(rates.eur_ves.toString());
-              setIsRateModalOpen(true);
-            }}
-          >
+          <View style={styles.rateSubCard}>
             <Text style={styles.rateLabel}>Euro Oficial</Text>
             <Text style={styles.rateValue}>
               Bs. {rates.eur_ves.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Text>
             <Text style={styles.rateCurrency}>1 EUR</Text>
-          </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      </TouchableOpacity>
 
       {/* Quick Calculator Card */}
       <View style={styles.card}>
@@ -370,60 +335,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <Text style={styles.bannerBadgeText}>Ver Reporte</Text>
         </View>
       </TouchableOpacity>
-
-      {/* Rate Edit Modal */}
-      <Modal
-        visible={isRateModalOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setIsRateModalOpen(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>Actualizar Tasa BCV</Text>
-            <Text style={styles.modalSubtitle}>Ingresa la cotizacion oficial del dia</Text>
-
-            <View style={styles.modalField}>
-              <Text style={styles.fieldLabel}>Tasa USD (Bolivares)</Text>
-              <TextInput
-                style={styles.modalInput}
-                value={tempUsdRate}
-                onChangeText={setTempUsdRate}
-                keyboardType="numeric"
-                placeholder="875.70"
-                placeholderTextColor={THEME.colors.textMuted}
-              />
-            </View>
-
-            <View style={styles.modalField}>
-              <Text style={styles.fieldLabel}>Tasa EUR (Bolivares)</Text>
-              <TextInput
-                style={styles.modalInput}
-                value={tempEurRate}
-                onChangeText={setTempEurRate}
-                keyboardType="numeric"
-                placeholder="976.62"
-                placeholderTextColor={THEME.colors.textMuted}
-              />
-            </View>
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.modalBtnCancel}
-                onPress={() => setIsRateModalOpen(false)}
-              >
-                <Text style={styles.modalBtnCancelText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.modalBtnSave}
-                onPress={handleSaveRates}
-              >
-                <Text style={styles.modalBtnSaveText}>Guardar Tasas</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </ScrollView>
   );
 };
@@ -461,29 +372,14 @@ const styles = StyleSheet.create({
     color: THEME.colors.textSecondary,
     letterSpacing: 0.5,
   },
-  cardHeaderActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  ratesCardTouchable: {
+    borderColor: THEME.colors.cardBorderHighlight,
   },
-  syncRateBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 3.5,
-    backgroundColor: '#0c0a09',
-    borderRadius: THEME.radius.full,
-    borderWidth: 1,
-    borderColor: THEME.colors.cardBorder,
-  },
-  syncRateBtnDisabled: {
-    opacity: 0.6,
-  },
-  syncRateBtnText: {
+  cardTapHint: {
     fontSize: 10,
-    fontWeight: '700',
-    color: THEME.colors.accent,
+    fontWeight: '600',
+    color: THEME.colors.textMuted,
+    marginTop: 2,
   },
   rateStatusPill: {
     flexDirection: 'row',
@@ -649,84 +545,6 @@ const styles = StyleSheet.create({
   },
   bannerBadgeText: {
     fontSize: 11,
-    fontWeight: '800',
-    color: '#0c0a09',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  modalBox: {
-    width: '100%',
-    maxWidth: 360,
-    backgroundColor: THEME.colors.card,
-    borderRadius: THEME.radius.xl,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: THEME.colors.cardBorderHighlight,
-  },
-  modalTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: THEME.colors.textPrimary,
-    marginBottom: 2,
-  },
-  modalSubtitle: {
-    fontSize: 11,
-    color: THEME.colors.textSecondary,
-    marginBottom: 16,
-  },
-  modalField: {
-    marginBottom: 12,
-  },
-  fieldLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: THEME.colors.textSecondary,
-    marginBottom: 6,
-  },
-  modalInput: {
-    backgroundColor: '#0c0a09',
-    borderRadius: THEME.radius.md,
-    borderWidth: 1,
-    borderColor: THEME.colors.cardBorder,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 14,
-    fontWeight: '700',
-    color: THEME.colors.textPrimary,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 8,
-  },
-  modalBtnCancel: {
-    flex: 1,
-    backgroundColor: '#0c0a09',
-    borderWidth: 1,
-    borderColor: THEME.colors.cardBorder,
-    paddingVertical: 10,
-    borderRadius: THEME.radius.md,
-    alignItems: 'center',
-  },
-  modalBtnCancelText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: THEME.colors.textSecondary,
-  },
-  modalBtnSave: {
-    flex: 1,
-    backgroundColor: THEME.colors.accent,
-    paddingVertical: 10,
-    borderRadius: THEME.radius.md,
-    alignItems: 'center',
-  },
-  modalBtnSaveText: {
-    fontSize: 12,
     fontWeight: '800',
     color: '#0c0a09',
   },
