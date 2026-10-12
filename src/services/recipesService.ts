@@ -162,13 +162,32 @@ export async function fetchRecipes(): Promise<Recipe[]> {
     console.warn('Error fetching recipes from Supabase', err);
   }
 
-  if (!isFetchSuccess || list.length === 0) {
-    list = await getCachedRecipes();
-  } else {
-    await setCachedRecipes(list);
+  const localList = await getCachedRecipes();
+  if (!isFetchSuccess) {
+    return localList;
   }
 
-  return list;
+  const remoteMap = new Map(list.map((r) => [r.id, r]));
+  const localMap = new Map(localList.map((r) => [r.id, r]));
+
+  // Merge remote recipes with local edits (local edits take priority)
+  const merged: Recipe[] = list.map((remoteItem) => {
+    const localItem = localMap.get(remoteItem.id);
+    return localItem ? { ...remoteItem, process: localItem.process || remoteItem.process } : remoteItem;
+  });
+
+  // Preserve any custom recipes created locally by the user
+  for (const localItem of localList) {
+    if (!remoteMap.has(localItem.id)) {
+      merged.push(localItem);
+      if (localItem.id.startsWith('local_')) {
+        createRecipeInBackend(localItem).catch(() => {});
+      }
+    }
+  }
+
+  await setCachedRecipes(merged);
+  return merged;
 }
 
 export async function updateRecipeProcessInBackend(

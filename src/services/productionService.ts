@@ -91,13 +91,26 @@ export async function fetchProductionLogs(): Promise<ProductionLog[]> {
     console.warn('Error fetching production logs from Supabase', err);
   }
 
-  if (!isFetchSuccess || list.length === 0) {
-    list = await getCachedProductionLogs();
-  } else {
-    await setCachedProductionLogs(list);
+  const localList = await getCachedProductionLogs();
+  if (!isFetchSuccess) {
+    return localList;
   }
 
-  return list;
+  const remoteMap = new Map(list.map((p) => [p.id, p]));
+  const merged: ProductionLog[] = [...list];
+
+  // Preserve any local production logs
+  for (const local of localList) {
+    if (!remoteMap.has(local.id)) {
+      merged.push(local);
+      if (local.id.startsWith('local_') || local.id.startsWith('temp_')) {
+        addProductionLogInBackend(local).catch(() => {});
+      }
+    }
+  }
+
+  await setCachedProductionLogs(merged);
+  return merged;
 }
 
 export async function addProductionLogInBackend(

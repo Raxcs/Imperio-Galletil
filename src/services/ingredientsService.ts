@@ -181,21 +181,38 @@ export async function fetchIngredients(): Promise<Ingredient[]> {
     console.warn('Supabase ingredients fetch failed, using local cache', err);
   }
 
-  // 3. Fallback to cached or initial if Supabase returned nothing or failed
-  if (!isFetchSuccess || list.length === 0) {
-    list = await getCachedIngredients();
-  } else {
-    // Preserve local selection state
-    const cached = await getCachedIngredients();
-    const selectionMap = new Map(cached.map((c) => [c.id, !!c.selected]));
-    list = list.map((item) => ({
-      ...item,
-      selected: selectionMap.get(item.id) ?? false,
-    }));
-    await setCachedIngredients(list);
+  // Fallback to local cache if remote fetch failed
+  const localList = await getCachedIngredients();
+  if (!isFetchSuccess) {
+    return localList;
   }
 
-  return list;
+  // Merge remote catalog with local modifications
+  const remoteMap = new Map(list.map((item) => [item.id, item]));
+  const localMap = new Map(localList.map((item) => [item.id, item]));
+
+  const merged: Ingredient[] = list.map((remoteItem) => {
+    const localItem = localMap.get(remoteItem.id);
+    return {
+      ...remoteItem,
+      selected: localItem ? !!localItem.selected : false,
+      price_usd: localItem ? localItem.price_usd : remoteItem.price_usd,
+      price_ves: localItem ? localItem.price_ves : remoteItem.price_ves,
+    };
+  });
+
+  // Preserve any custom ingredients added locally by the user
+  for (const localItem of localList) {
+    if (!remoteMap.has(localItem.id)) {
+      merged.push(localItem);
+      if (localItem.id.startsWith('local_')) {
+        createIngredientInBackend(localItem).catch(() => {});
+      }
+    }
+  }
+
+  await setCachedIngredients(merged);
+  return merged;
 }
 
 export async function updateIngredientPriceInBackend(

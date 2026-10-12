@@ -32,10 +32,10 @@ import {
   ProductionLog,
 } from './src/types';
 import { getExchangeRates, DEFAULT_RATES, syncBcvRates } from './src/services/exchangeRatesService';
-import { fetchIngredients, getCachedIngredients, INITIAL_INGREDIENTS } from './src/services/ingredientsService';
-import { fetchDebts, getCachedDebts, INITIAL_DEBTS } from './src/services/debtsService';
-import { fetchRecipes, getCachedRecipes, INITIAL_RECIPES, computeRecipesWithIngredients } from './src/services/recipesService';
-import { fetchProductionLogs, getCachedProductionLogs, INITIAL_PRODUCTION_LOGS } from './src/services/productionService';
+import { getCachedIngredients, INITIAL_INGREDIENTS } from './src/services/ingredientsService';
+import { getCachedDebts, INITIAL_DEBTS } from './src/services/debtsService';
+import { getCachedRecipes, INITIAL_RECIPES, computeRecipesWithIngredients } from './src/services/recipesService';
+import { getCachedProductionLogs, INITIAL_PRODUCTION_LOGS } from './src/services/productionService';
 import {
   checkForAppUpdate,
   openAppUpdateDownload,
@@ -125,39 +125,7 @@ function MainAppContent() {
         console.warn('Error hydrating local cache on startup', err);
       }
 
-      // 2. Decoupled background cloud sync (each finishes on its own without blocking others)
-      fetchDebts()
-        .then((freshDebts) => {
-          if (isMounted && Array.isArray(freshDebts)) {
-            setDebts(freshDebts);
-          }
-        })
-        .catch(() => {});
-
-      fetchIngredients()
-        .then((freshIngs) => {
-          if (isMounted && freshIngs && freshIngs.length > 0) {
-            setIngredients(freshIngs);
-          }
-        })
-        .catch(() => {});
-
-      fetchRecipes()
-        .then((freshRecipes) => {
-          if (isMounted && freshRecipes && freshRecipes.length > 0) {
-            setRecipes(freshRecipes);
-          }
-        })
-        .catch(() => {});
-
-      fetchProductionLogs()
-        .then((freshLogs) => {
-          if (isMounted && freshLogs && freshLogs.length > 0) {
-            setLogs(freshLogs);
-          }
-        })
-        .catch(() => {});
-
+      // 2. Refresh official market exchange rates in background
       syncBcvRates()
         .then((bcvSync) => {
           if (isMounted && bcvSync.updated) {
