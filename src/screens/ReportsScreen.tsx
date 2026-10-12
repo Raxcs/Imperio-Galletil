@@ -162,9 +162,6 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
       <View style={styles.netProfitCard}>
         <View style={styles.netProfitHeader}>
           <Text style={styles.netProfitTitle}>GANANCIA NETA LIBRE</Text>
-          <View style={styles.pocketBadge}>
-            <Text style={styles.pocketBadgeText}>Tu Bolsillo</Text>
-          </View>
         </View>
 
         <View style={styles.netProfitAmountRow}>
@@ -368,17 +365,7 @@ const styles = StyleSheet.create({
     color: THEME.colors.accent,
     letterSpacing: 0.5,
   },
-  pocketBadge: {
-    backgroundColor: THEME.colors.accentDark,
-    borderRadius: THEME.radius.full,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  pocketBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: THEME.colors.accentLight,
-  },
+
   netProfitAmountRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
