@@ -190,136 +190,42 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
   };
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={isRefreshing}
-          onRefresh={handleRefresh}
-          tintColor={THEME.colors.accent}
-          colors={[THEME.colors.accent]}
-        />
-      }
-    >
-      {/* Top Banner: Total Seleccionado (solo si hay insumos seleccionados) */}
-      {selectedIngredients.length > 0 && (
-        <View style={styles.summaryCard}>
-          <View style={styles.summaryTopRow}>
-            <Text style={styles.summaryTitle}>TOTAL SELECCIONADO</Text>
-            <View style={styles.summaryBadge}>
-              <Text style={styles.summaryBadgeText}>
-                {selectedIngredients.length} {selectedIngredients.length === 1 ? 'Marcado' : 'Marcados'}
+    <View style={styles.screenWrapper}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={THEME.colors.accent}
+            colors={[THEME.colors.accent]}
+          />
+        }
+      >
+        {/* Top Banner: Total Seleccionado (solo si hay insumos seleccionados) */}
+        {selectedIngredients.length > 0 && (
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryTopRow}>
+              <Text style={styles.summaryTitle}>TOTAL SELECCIONADO</Text>
+              <View style={styles.summaryBadge}>
+                <Text style={styles.summaryBadgeText}>
+                  {selectedIngredients.length} {selectedIngredients.length === 1 ? 'Marcado' : 'Marcados'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.summaryAmountRow}>
+              <Text style={styles.summaryTotalVes}>
+                Bs. {selectedTotalVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </Text>
+              <Text style={styles.summaryTotalUsd}>
+                ${selectedTotalUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
               </Text>
             </View>
           </View>
-
-          <View style={styles.summaryAmountRow}>
-            <Text style={styles.summaryTotalVes}>
-              Bs. {selectedTotalVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </Text>
-            <Text style={styles.summaryTotalUsd}>
-              ${selectedTotalUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-            </Text>
-          </View>
-        </View>
-      )}
-
-      {/* Button Open Form */}
-      <TouchableOpacity
-        style={styles.addBtn}
-        onPress={() => setIsAddFormVisible(!isAddFormVisible)}
-      >
-        <Plus size={16} color={THEME.colors.accent} strokeWidth={2.5} />
-        <Text style={styles.addBtnText}>Añadir Nuevo Insumo</Text>
-      </TouchableOpacity>
-
-      {/* Add Ingredient Form */}
-      {isAddFormVisible && (
-        <View style={styles.addFormBox}>
-          <View style={styles.formHeader}>
-            <Text style={styles.formTitle}>Registrar Nuevo Insumo</Text>
-            <TouchableOpacity onPress={() => setIsAddFormVisible(false)}>
-              <Text style={styles.formCloseText}>Cerrar</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.fieldWrapper}>
-            <Text style={styles.label}>Nombre del insumo</Text>
-            <TextInput
-              style={styles.input}
-              value={newName}
-              onChangeText={setNewName}
-              placeholder="Ejemplo: Polvo de hornear"
-              placeholderTextColor={THEME.colors.textMuted}
-            />
-          </View>
-
-          <View style={styles.rowFields}>
-            <View style={[styles.fieldWrapper, { flex: 1 }]}>
-              <Text style={styles.label}>Presentacion</Text>
-              <TextInput
-                style={styles.input}
-                value={newPresentation}
-                onChangeText={setNewPresentation}
-                placeholder="Ej: Pote de 100g"
-                placeholderTextColor={THEME.colors.textMuted}
-              />
-            </View>
-
-            <View style={[styles.fieldWrapper, { flex: 1 }]}>
-              <Text style={styles.label}>Categoria</Text>
-              <View style={styles.catPillRow}>
-                {(['galletas', 'brownies', 'empaques', 'ambos'] as const).map((c) => {
-                  const isSelected = newCat === c;
-                  return (
-                    <TouchableOpacity
-                      key={c}
-                      style={[styles.smallCatPill, isSelected && styles.smallCatPillActive]}
-                      onPress={() => setNewCat(c)}
-                    >
-                      <Text style={[styles.smallCatPillText, isSelected && styles.smallCatPillTextActive]}>
-                        {c}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.rowFields}>
-            <View style={[styles.fieldWrapper, { flex: 1 }]}>
-              <Text style={styles.label}>Precio Dolares (USD)</Text>
-              <TextInput
-                style={styles.input}
-                value={newPriceUsd}
-                onChangeText={handleNewUsdChange}
-                keyboardType="numeric"
-                placeholder="1.50"
-                placeholderTextColor={THEME.colors.textMuted}
-              />
-            </View>
-
-            <View style={[styles.fieldWrapper, { flex: 1 }]}>
-              <Text style={styles.label}>Precio Bolivares (VES)</Text>
-              <TextInput
-                style={styles.input}
-                value={newPriceVes}
-                onChangeText={handleNewVesChange}
-                keyboardType="numeric"
-                placeholder="1313.55"
-                placeholderTextColor={THEME.colors.textMuted}
-              />
-            </View>
-          </View>
-
-          <TouchableOpacity style={styles.submitBtn} onPress={handleSaveNewIngredient}>
-            <Text style={styles.submitBtnText}>Guardar Insumo en Catalogo</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+        )}
 
       {/* Category Filter Pills */}
       <View style={styles.catSwitcher}>
@@ -460,11 +366,119 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
           </View>
         </Modal>
       )}
+
+      {/* Modal para Registrar Nuevo Insumo */}
+      <Modal
+        visible={isAddFormVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsAddFormVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <View style={styles.formHeader}>
+              <Text style={styles.formTitle}>Registrar Nuevo Insumo</Text>
+              <TouchableOpacity onPress={() => setIsAddFormVisible(false)}>
+                <Text style={styles.formCloseText}>Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.fieldWrapper}>
+              <Text style={styles.label}>Nombre del insumo</Text>
+              <TextInput
+                style={styles.input}
+                value={newName}
+                onChangeText={setNewName}
+                placeholder="Ejemplo: Polvo de hornear"
+                placeholderTextColor={THEME.colors.textMuted}
+              />
+            </View>
+
+            <View style={styles.rowFields}>
+              <View style={[styles.fieldWrapper, { flex: 1 }]}>
+                <Text style={styles.label}>Presentacion</Text>
+                <TextInput
+                  style={styles.input}
+                  value={newPresentation}
+                  onChangeText={setNewPresentation}
+                  placeholder="Ej: Pote de 100g"
+                  placeholderTextColor={THEME.colors.textMuted}
+                />
+              </View>
+
+              <View style={[styles.fieldWrapper, { flex: 1 }]}>
+                <Text style={styles.label}>Categoria</Text>
+                <View style={styles.catPillRow}>
+                  {(['galletas', 'brownies', 'empaques', 'ambos'] as const).map((c) => {
+                    const isSelected = newCat === c;
+                    return (
+                      <TouchableOpacity
+                        key={c}
+                        style={[styles.smallCatPill, isSelected && styles.smallCatPillActive]}
+                        onPress={() => setNewCat(c)}
+                      >
+                        <Text style={[styles.smallCatPillText, isSelected && styles.smallCatPillTextActive]}>
+                          {c}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.rowFields}>
+              <View style={[styles.fieldWrapper, { flex: 1 }]}>
+                <Text style={styles.label}>Precio Dolares (USD)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={newPriceUsd}
+                  onChangeText={handleNewUsdChange}
+                  keyboardType="numeric"
+                  placeholder="1.50"
+                  placeholderTextColor={THEME.colors.textMuted}
+                />
+              </View>
+
+              <View style={[styles.fieldWrapper, { flex: 1 }]}>
+                <Text style={styles.label}>Precio Bolivares (VES)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={newPriceVes}
+                  onChangeText={handleNewVesChange}
+                  keyboardType="numeric"
+                  placeholder="1313.55"
+                  placeholderTextColor={THEME.colors.textMuted}
+                />
+              </View>
+            </View>
+
+            <TouchableOpacity style={styles.submitBtn} onPress={handleSaveNewIngredient}>
+              <Text style={styles.submitBtnText}>Guardar Insumo en Catalogo</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
+
+    {/* Floating Action Button para Registrar Insumo */}
+    <TouchableOpacity
+      style={styles.fabBtn}
+      onPress={() => setIsAddFormVisible(true)}
+      activeOpacity={0.85}
+    >
+      <Plus size={26} color="#0c0a09" strokeWidth={3} />
+    </TouchableOpacity>
+  </View>
   );
 };
 
 const styles = StyleSheet.create({
+  screenWrapper: {
+    flex: 1,
+    position: 'relative',
+    backgroundColor: THEME.colors.bg,
+  },
   container: {
     flex: 1,
     backgroundColor: THEME.colors.bg,
@@ -472,77 +486,24 @@ const styles = StyleSheet.create({
   contentContainer: {
     padding: 16,
     gap: 14,
+    paddingBottom: 90,
   },
-  summaryCard: {
-    backgroundColor: THEME.colors.card,
-    borderRadius: THEME.radius.lg,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: THEME.colors.cardBorder,
-  },
-  summaryTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  summaryTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: THEME.colors.textSecondary,
-    letterSpacing: 0.5,
-  },
-  summaryBadge: {
-    backgroundColor: THEME.colors.accentBg,
-    borderColor: THEME.colors.accentDark,
-    borderWidth: 1,
-    borderRadius: THEME.radius.full,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  summaryBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: THEME.colors.accentLight,
-  },
-  summaryAmountRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-  },
-  summaryTotalVes: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: THEME.colors.textPrimary,
-  },
-  summaryTotalUsd: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: THEME.colors.accent,
-  },
-  addBtn: {
-    flexDirection: 'row',
+  fabBtn: {
+    position: 'absolute',
+    bottom: 24,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: THEME.colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    backgroundColor: THEME.colors.card,
-    borderWidth: 1,
-    borderColor: THEME.colors.cardBorder,
-    borderRadius: THEME.radius.md,
-    paddingVertical: 12,
-  },
-  addBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: THEME.colors.accentLight,
-  },
-  addFormBox: {
-    backgroundColor: THEME.colors.card,
-    borderRadius: THEME.radius.lg,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: THEME.colors.cardBorderHighlight,
-    gap: 12,
+    elevation: 8,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    zIndex: 99,
   },
   formHeader: {
     flexDirection: 'row',
