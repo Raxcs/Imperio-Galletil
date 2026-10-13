@@ -233,11 +233,7 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
       selected: false,
     };
 
-    const saved = await createIngredientInBackend(newItemData);
-    const itemToAdd: Ingredient = saved || {
-      ...newItemData,
-      id: 'local_' + Date.now(),
-    };
+    const itemToAdd = await createIngredientInBackend(newItemData);
 
     const updated = [itemToAdd, ...ingredients];
     onIngredientsUpdated(updated);

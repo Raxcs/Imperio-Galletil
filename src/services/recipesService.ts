@@ -1,8 +1,20 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, withTimeout } from '../lib/supabase';
+import {
+  createIdSetStore,
+  generateId,
+  isUuid,
+  mergeWithRemote,
+  singleFlight,
+  stripDeletedPrefix,
+  DELETED_PREFIX,
+} from '../lib/sync';
 import { Recipe, Ingredient, ExchangeRates, RecipeIngredient } from '../types';
 
 const STORAGE_KEY = '@imperio_galletil_recipes';
+const TABLE = 'recipes';
+
+const pendingRecipes = createIdSetStore('@imperio_galletil_pending_recipes');
 
 export const INITIAL_RECIPES: Recipe[] = [
   {
@@ -232,114 +244,121 @@ export async function setCachedRecipes(items: Recipe[]): Promise<void> {
   }
 }
 
-export async function fetchRecipes(): Promise<Recipe[]> {
-  const deletedIdsList = await getDeletedRecipeIds();
-  const deletedIdsSet = new Set(deletedIdsList);
-  let list: Recipe[] = [];
-  let isFetchSuccess = false;
+/** Content fingerprint used to recognize legacy local recipes that already exist remotely. */
+export function recipeContentKey(recipe: Recipe): string {
+  return (recipe.title || '').trim().toLowerCase();
+}
 
+function fromRow(r: any): Recipe {
+  return {
+    id: String(r.id),
+    title: r.title,
+    subtitle: r.subtitle || '',
+    batch_yield: Number(r.batch_yield),
+    batch_cost_usd: Number(r.batch_cost_usd),
+    pack_cost_usd: Number(r.pack_cost_usd),
+    process: r.process || '',
+    ingredients: Array.isArray(r.ingredients) ? r.ingredients : [],
+    created_at: r.created_at,
+  };
+}
+
+function toRow(recipe: Recipe) {
+  return {
+    id: recipe.id,
+    title: recipe.title,
+    subtitle: recipe.subtitle,
+    batch_yield: recipe.batch_yield,
+    batch_cost_usd: recipe.batch_cost_usd,
+    pack_cost_usd: recipe.pack_cost_usd,
+    process: recipe.process,
+    ingredients: recipe.ingredients,
+  };
+}
+
+/**
+ * Idempotent save: the id is generated on the device, so retries never duplicate rows.
+ * The id stays in the pending set until the server confirms the write.
+ */
+async function upsertRecipe(recipe: Recipe): Promise<Recipe> {
+  await pendingRecipes.add(recipe.id);
   try {
     const { data, error } = await withTimeout(
-      supabase.from('recipes').select('*')
+      supabase.from(TABLE).upsert(toRow(recipe), { onConflict: 'id' }).select().single()
     );
+    if (!error && data) {
+      await pendingRecipes.remove(recipe.id);
+      return fromRow(data);
+    }
+    if (error) console.warn('Error upserting recipe in Supabase', error);
+  } catch (err) {
+    console.warn('Error upserting recipe in Supabase', err);
+  }
+  return recipe;
+}
+
+async function syncRecipes(): Promise<Recipe[]> {
+  const deletedIdsSet = new Set(await getDeletedRecipeIds());
+  const localList = await getCachedRecipes();
+  const activeLocalList = localList.filter((r) => !isRecipeDeleted(r, deletedIdsSet));
+
+  let remoteAll: Recipe[] | null = null;
+  try {
+    const { data, error } = await withTimeout(supabase.from(TABLE).select('*'));
     if (!error && Array.isArray(data)) {
-      isFetchSuccess = true;
-      list = data
-        .filter((r: any) => !r.subtitle?.startsWith('__DELETED__') && !deletedIdsSet.has(String(r.id)))
-        .map((r: any) => ({
-          id: String(r.id),
-          title: r.title,
-          subtitle: r.subtitle || '',
-          batch_yield: Number(r.batch_yield),
-          batch_cost_usd: Number(r.batch_cost_usd),
-          pack_cost_usd: Number(r.pack_cost_usd),
-          process: r.process || '',
-          ingredients: Array.isArray(r.ingredients) ? r.ingredients : [],
-          created_at: r.created_at,
-        }));
+      remoteAll = data.map(fromRow);
+    } else if (error) {
+      console.warn('Error fetching recipes from Supabase', error);
     }
   } catch (err) {
     console.warn('Error fetching recipes from Supabase', err);
   }
 
-  const localList = await getCachedRecipes();
-  const activeLocalList = localList.filter((r) => !isRecipeDeleted(r, deletedIdsSet));
-
-  if (!isFetchSuccess) {
+  if (!remoteAll) {
     return activeLocalList;
   }
 
-  const remoteMap = new Map(list.map((r) => [r.id, r]));
-  const localMap = new Map(activeLocalList.map((r) => [r.id, r]));
-
-  // Merge remote recipes with local edits (local edits take priority)
-  const merged: Recipe[] = list.map((remoteItem) => {
-    const localItem = localMap.get(remoteItem.id);
-    return localItem ? { ...remoteItem, process: localItem.process || remoteItem.process } : remoteItem;
+  const { merged, toUpsert } = mergeWithRemote({
+    remote: remoteAll.filter((r) => !isRecipeDeleted(r, deletedIdsSet)),
+    remoteAll,
+    local: activeLocalList,
+    pendingIds: await pendingRecipes.getAll(),
+    contentKey: recipeContentKey,
   });
 
-  // Preserve and auto sync any custom recipes created locally by the user
-  for (const localItem of activeLocalList) {
-    if (!remoteMap.has(localItem.id) && !deletedIdsSet.has(localItem.id)) {
-      merged.push(localItem);
-      createRecipeInBackend(localItem).catch(() => {});
-    }
-  }
-
+  await pendingRecipes.addMany(toUpsert.map((r) => r.id));
   await setCachedRecipes(merged);
+  await Promise.allSettled(toUpsert.map(upsertRecipe));
+
   return merged;
 }
+
+export const fetchRecipes = singleFlight(syncRecipes);
 
 export async function updateRecipeProcessInBackend(
   recipeId: string,
   newProcess: string
 ): Promise<void> {
+  if (!isUuid(recipeId)) return; // legacy record, it will be migrated on next sync
   try {
-    await supabase
-      .from('recipes')
-      .update({ process: newProcess })
-      .eq('id', recipeId);
+    const { error } = await supabase.from(TABLE).update({ process: newProcess }).eq('id', recipeId);
+    if (!error) return;
+    console.warn('Error saving recipe process in Supabase', error);
   } catch (err) {
     console.warn('Error saving recipe process in Supabase', err);
   }
+  // Retry on next sync with the full cached record
+  await pendingRecipes.add(recipeId);
 }
 
-export async function createRecipeInBackend(recipe: Recipe): Promise<void> {
-  try {
-    await supabase.from('recipes').upsert([
-      {
-        id: recipe.id,
-        title: recipe.title,
-        subtitle: recipe.subtitle,
-        batch_yield: recipe.batch_yield,
-        batch_cost_usd: recipe.batch_cost_usd,
-        pack_cost_usd: recipe.pack_cost_usd,
-        process: recipe.process,
-        ingredients: recipe.ingredients,
-      },
-    ]);
-  } catch (err) {
-    console.warn('Error creating/upserting recipe in Supabase', err);
-  }
+export async function createRecipeInBackend(recipe: Recipe): Promise<Recipe> {
+  const withId: Recipe = { ...recipe, id: isUuid(recipe.id) ? recipe.id : generateId() };
+  return upsertRecipe(withId);
 }
 
 export async function updateRecipeInBackend(recipe: Recipe): Promise<void> {
-  try {
-    await supabase.from('recipes').upsert([
-      {
-        id: recipe.id,
-        title: recipe.title,
-        subtitle: recipe.subtitle,
-        batch_yield: recipe.batch_yield,
-        batch_cost_usd: recipe.batch_cost_usd,
-        pack_cost_usd: recipe.pack_cost_usd,
-        process: recipe.process,
-        ingredients: recipe.ingredients,
-      },
-    ]);
-  } catch (err) {
-    console.warn('Error updating recipe in Supabase', err);
-  }
+  if (!isUuid(recipe.id)) return; // legacy record, it will be migrated on next sync
+  await upsertRecipe(recipe);
 }
 
 export async function deleteRecipeInBackend(recipeId: string, recipe?: Recipe): Promise<void> {
@@ -347,8 +366,8 @@ export async function deleteRecipeInBackend(recipeId: string, recipe?: Recipe): 
   await addDeletedRecipeId(recipeId);
   try {
     const sub = recipe?.subtitle || '';
-    const newSubtitle = sub.startsWith('__DELETED__') ? sub : '__DELETED__' + sub;
-    await supabase.from('recipes').update({ subtitle: newSubtitle }).eq('id', recipeId);
+    const newSubtitle = sub.startsWith(DELETED_PREFIX) ? sub : DELETED_PREFIX + sub;
+    await supabase.from(TABLE).update({ subtitle: newSubtitle }).eq('id', recipeId);
   } catch (err) {
     console.warn('Error soft deleting recipe in Supabase', err);
   }
@@ -357,10 +376,9 @@ export async function deleteRecipeInBackend(recipeId: string, recipe?: Recipe): 
 export async function restoreRecipeInBackend(recipe: Recipe): Promise<void> {
   await removeDeletedRecipeId(recipe.id);
   try {
-    const cleanSubtitle = (recipe.subtitle || '').replace(/^__DELETED__/, '');
-    await supabase.from('recipes').update({ subtitle: cleanSubtitle }).eq('id', recipe.id);
+    const cleanSubtitle = stripDeletedPrefix(recipe.subtitle);
+    await supabase.from(TABLE).update({ subtitle: cleanSubtitle }).eq('id', recipe.id);
   } catch (err) {
     console.warn('Error restoring recipe in Supabase', err);
   }
 }
-

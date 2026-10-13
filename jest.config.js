@@ -11,6 +11,7 @@ module.exports = {
     '^react-native$': '<rootDir>/__mocks__/react-native.js',
     '^expo-file-system/legacy$': '<rootDir>/__mocks__/expo-file-system.js',
     '^expo-file-system$': '<rootDir>/__mocks__/expo-file-system.js',
+    '^expo-crypto$': '<rootDir>/__mocks__/expo-crypto.js',
     '^expo-intent-launcher$': '<rootDir>/__mocks__/expo-intent-launcher.js',
   },
   transform: {

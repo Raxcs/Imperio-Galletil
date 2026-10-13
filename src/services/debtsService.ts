@@ -1,11 +1,23 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, withTimeout } from '../lib/supabase';
+import {
+  createIdSetStore,
+  generateId,
+  isUuid,
+  mergeWithRemote,
+  singleFlight,
+  stripDeletedPrefix,
+  DELETED_PREFIX,
+} from '../lib/sync';
 import { Debt } from '../types';
 
 const STORAGE_KEY = '@imperio_galletil_debts';
+const TABLE = 'debts';
 export const AUTO_PURGE_DAYS = 30;
 
 export const INITIAL_DEBTS: Debt[] = [];
+
+const pendingDebts = createIdSetStore('@imperio_galletil_pending_debts');
 
 export async function getCachedDebts(): Promise<Debt[]> {
   try {
@@ -90,126 +102,38 @@ export async function removeDeletedDebtId(id: string): Promise<void> {
 
 export function isDebtDeleted(debt: Debt, deletedIds?: Set<string>): boolean {
   if (debt.deleted || debt.is_deleted) return true;
-  if (typeof debt.note === 'string' && debt.note.startsWith('__DELETED__')) return true;
-  if (typeof debt.name === 'string' && debt.name.startsWith('__DELETED__')) return true;
+  if (typeof debt.note === 'string' && debt.note.startsWith(DELETED_PREFIX)) return true;
+  if (typeof debt.name === 'string' && debt.name.startsWith(DELETED_PREFIX)) return true;
   if (deletedIds && deletedIds.has(debt.id)) return true;
   return false;
 }
 
-export async function fetchDebts(): Promise<Debt[]> {
-  const deletedIdsList = await getDeletedDebtIds();
-  const deletedIdsSet = new Set(deletedIdsList);
-  const localDebts = await getCachedDebts();
-  let remoteList: Debt[] = [];
-  let isFetchSuccess = false;
-
-  try {
-    // 1. Try Supabase English table 'debts' with timeout
-    const { data, error } = await withTimeout(
-      supabase
-        .from('debts')
-        .select('*')
-        .order('created_at', { ascending: false })
-    );
-
-    if (!error && Array.isArray(data)) {
-      isFetchSuccess = true;
-      remoteList = data
-        .filter((item: any) => !item.note?.startsWith('__DELETED__') && !item.name?.startsWith('__DELETED__') && !deletedIdsSet.has(String(item.id)))
-        .map((item: any) => ({
-          id: String(item.id),
-          name: item.name,
-          amount: Number(item.amount),
-          debt_date: item.debt_date,
-          note: item.note || '',
-          paid: !!item.paid,
-          paid_date: item.paid_date,
-          created_at: item.created_at,
-        }));
-    } else if (error) {
-      // 2. Try Supabase fallback Spanish table 'deudas'
-      const { data: fbData, error: fbError } = await withTimeout(
-        supabase
-          .from('deudas')
-          .select('*')
-          .order('created_at', { ascending: false })
-      );
-
-      if (!fbError && Array.isArray(fbData)) {
-        isFetchSuccess = true;
-        remoteList = fbData
-          .filter((item: any) => !item.note?.startsWith('__DELETED__') && !item.name?.startsWith('__DELETED__') && !deletedIdsSet.has(String(item.id)))
-          .map((item: any) => ({
-            id: String(item.id),
-            name: item.name,
-            amount: Number(item.amount),
-            debt_date: item.debt_date,
-            note: item.note || '',
-            paid: !!item.paid,
-            paid_date: item.paid_date,
-            created_at: item.created_at,
-          }));
-      }
-    }
-  } catch (err) {
-    console.warn('Error fetching debts from Supabase, preserving local cache', err);
-  }
-
-  // Active local debts (excluding deleted)
-  const activeLocalDebts = localDebts.filter((d) => !isDebtDeleted(d, deletedIdsSet));
-
-  // If remote fetch failed, preserve and return local cache
-  if (!isFetchSuccess) {
-    const { valid } = purgeOldDebts(activeLocalDebts);
-    await setCachedDebts(valid);
-    return valid;
-  }
-
-  // Merge remote records with any local offline/unsynced records
-  const remoteMap = new Map(remoteList.map((d) => [d.id, d]));
-  const merged: Debt[] = [...remoteList];
-
-  for (const local of activeLocalDebts) {
-    if (!remoteMap.has(local.id) && !deletedIdsSet.has(local.id)) {
-      merged.unshift(local);
-      saveDebtInBackend(local).catch(() => {});
-    }
-  }
-
-  // Auto-purge debts older than 30 days
-  const { valid, expiredIds } = purgeOldDebts(merged);
-  if (expiredIds.length > 0) {
-    // Clean up expired debts in background
-    for (const expId of expiredIds) {
-      deleteDebtInBackend(expId).catch(() => {});
-    }
-  }
-
-  await setCachedDebts(valid);
-  return valid;
+/** Content fingerprint used to recognize legacy local debts that already exist remotely. */
+export function debtContentKey(debt: Debt): string {
+  return [
+    stripDeletedPrefix(debt.name).trim().toLowerCase(),
+    Number(debt.amount),
+    debt.debt_date,
+    stripDeletedPrefix(debt.note).trim(),
+  ].join('|');
 }
 
-export async function deleteDebtInBackend(id: string, debt?: Debt): Promise<void> {
-  // Soft delete: Nunca se borra permanentemente de la base de datos
-  await addDeletedDebtId(id);
-  try {
-    const note = debt?.note || '';
-    const newNote = note.startsWith('__DELETED__') ? note : '__DELETED__' + note;
-
-    const { error } = await supabase.from('debts').update({ note: newNote }).eq('id', id);
-    if (error) {
-      await supabase.from('deudas').update({ note: newNote }).eq('id', id);
-    }
-  } catch (err) {
-    console.warn('Error soft deleting debt in Supabase', err);
-  }
+function fromRow(item: any): Debt {
+  return {
+    id: String(item.id),
+    name: item.name,
+    amount: Number(item.amount),
+    debt_date: item.debt_date,
+    note: item.note || '',
+    paid: !!item.paid,
+    paid_date: item.paid_date,
+    created_at: item.created_at,
+  };
 }
 
-export async function saveDebtInBackend(
-  debt: Omit<Debt, 'id'> | Debt
-): Promise<Debt> {
-  const isExisting = 'id' in debt && debt.id && !debt.id.startsWith('temp_');
-  const payload = {
+function toRow(debt: Debt) {
+  return {
+    id: debt.id,
     name: debt.name,
     amount: debt.amount,
     debt_date: debt.debt_date,
@@ -217,89 +141,101 @@ export async function saveDebtInBackend(
     paid: debt.paid,
     paid_date: debt.paid_date || null,
   };
-
-  if (isExisting) {
-    try {
-      const { data, error } = await supabase
-        .from('debts')
-        .update(payload)
-        .eq('id', (debt as Debt).id)
-        .select()
-        .single();
-
-      if (!error && data) {
-        return {
-          id: String(data.id),
-          name: data.name,
-          amount: Number(data.amount),
-          debt_date: data.debt_date,
-          note: data.note || '',
-          paid: !!data.paid,
-          paid_date: data.paid_date,
-          created_at: data.created_at,
-        };
-      }
-
-      await supabase.from('deudas').update(payload).eq('id', (debt as Debt).id);
-    } catch (err) {
-      console.warn('Error updating debt in Supabase', err);
-    }
-    return debt as Debt;
-  }
-
-  // Insert new debt
-  try {
-    const { data, error } = await supabase
-      .from('debts')
-      .insert(payload)
-      .select()
-      .single();
-
-    if (!error && data) {
-      return {
-        id: String(data.id),
-        name: data.name,
-        amount: Number(data.amount),
-        debt_date: data.debt_date,
-        note: data.note || '',
-        paid: !!data.paid,
-        paid_date: data.paid_date,
-        created_at: data.created_at,
-      };
-    }
-
-    const { data: fbData } = await supabase
-      .from('deudas')
-      .insert(payload)
-      .select()
-      .single();
-
-    if (fbData) {
-      return {
-        id: String(fbData.id),
-        name: fbData.name,
-        amount: Number(fbData.amount),
-        debt_date: fbData.debt_date,
-        note: fbData.note || '',
-        paid: !!fbData.paid,
-        paid_date: fbData.paid_date,
-        created_at: fbData.created_at,
-      };
-    }
-  } catch (err) {
-    console.warn('Error creating debt in Supabase', err);
-  }
-
-  return {
-    ...debt,
-    id: 'temp_' + Date.now(),
-  } as Debt;
 }
 
-export async function togglePaidDebtInBackend(
-  id: string,
-  nowPaid: boolean
-): Promise<void> {
+/**
+ * Idempotent save: the id is generated on the device, so retries never duplicate rows.
+ * The id stays in the pending set until the server confirms the write.
+ */
+async function upsertDebt(debt: Debt): Promise<Debt> {
+  await pendingDebts.add(debt.id);
+  try {
+    const { data, error } = await withTimeout(
+      supabase.from(TABLE).upsert(toRow(debt), { onConflict: 'id' }).select().single()
+    );
+    if (!error && data) {
+      await pendingDebts.remove(debt.id);
+      return fromRow(data);
+    }
+    if (error) console.warn('Error upserting debt in Supabase', error);
+  } catch (err) {
+    console.warn('Error upserting debt in Supabase', err);
+  }
+  return debt;
+}
+
+async function syncDebts(): Promise<Debt[]> {
+  const deletedIdsSet = new Set(await getDeletedDebtIds());
+  const localDebts = await getCachedDebts();
+  const activeLocalDebts = localDebts.filter((d) => !isDebtDeleted(d, deletedIdsSet));
+
+  let remoteAll: Debt[] | null = null;
+  try {
+    const { data, error } = await withTimeout(
+      supabase.from(TABLE).select('*').order('created_at', { ascending: false })
+    );
+    if (!error && Array.isArray(data)) {
+      remoteAll = data.map(fromRow);
+    } else if (error) {
+      console.warn('Error fetching debts from Supabase', error);
+    }
+  } catch (err) {
+    console.warn('Error fetching debts from Supabase, preserving local cache', err);
+  }
+
+  // If remote fetch failed, preserve and return local cache
+  if (!remoteAll) {
+    const { valid } = purgeOldDebts(activeLocalDebts);
+    await setCachedDebts(valid);
+    return valid;
+  }
+
+  const { merged, toUpsert } = mergeWithRemote({
+    remote: remoteAll.filter((d) => !isDebtDeleted(d, deletedIdsSet)),
+    remoteAll,
+    local: activeLocalDebts,
+    pendingIds: await pendingDebts.getAll(),
+    contentKey: debtContentKey,
+    prependLocal: true,
+  });
+
+  // Auto-purge debts older than 30 days
+  const { valid, expiredIds } = purgeOldDebts(merged);
+
+  await pendingDebts.addMany(toUpsert.map((d) => d.id));
+  await setCachedDebts(valid);
+
+  await Promise.allSettled(toUpsert.map(upsertDebt));
+  // Clean up expired debts in background
+  for (const expId of expiredIds) {
+    deleteDebtInBackend(expId, merged.find((d) => d.id === expId)).catch(() => {});
+  }
+
+  return valid;
+}
+
+export const fetchDebts = singleFlight(syncDebts);
+
+export async function deleteDebtInBackend(id: string, debt?: Debt): Promise<void> {
+  // Soft delete: Nunca se borra permanentemente de la base de datos
+  await addDeletedDebtId(id);
+  try {
+    const note = debt?.note || '';
+    const newNote = note.startsWith(DELETED_PREFIX) ? note : DELETED_PREFIX + note;
+    const { error } = await supabase.from(TABLE).update({ note: newNote }).eq('id', id);
+    if (error) console.warn('Error soft deleting debt in Supabase', error);
+  } catch (err) {
+    console.warn('Error soft deleting debt in Supabase', err);
+  }
+}
+
+export async function saveDebtInBackend(debt: Omit<Debt, 'id'> | Debt): Promise<Debt> {
+  const currentId = 'id' in debt ? debt.id : undefined;
+  const withId: Debt = { ...debt, id: isUuid(currentId) ? currentId : generateId() };
+  return upsertDebt(withId);
+}
+
+export async function togglePaidDebtInBackend(id: string, nowPaid: boolean): Promise<void> {
   const todayISO = new Date().toISOString().split('T')[0];
   const payload = {
     paid: nowPaid,
@@ -307,13 +243,14 @@ export async function togglePaidDebtInBackend(
   };
 
   try {
-    const { error } = await supabase.from('debts').update(payload).eq('id', id);
-    if (error) {
-      await supabase.from('deudas').update(payload).eq('id', id);
-    }
+    const { error } = await supabase.from(TABLE).update(payload).eq('id', id);
+    if (!error) return;
+    console.warn('Error toggling debt paid status', error);
   } catch (err) {
     console.warn('Error toggling debt paid status', err);
   }
+  // Retry on next sync with the full cached record
+  await pendingDebts.add(id);
 }
 
 export async function clearPaidDebtsInBackend(paidDebts?: Debt[]): Promise<void> {
@@ -323,8 +260,8 @@ export async function clearPaidDebtsInBackend(paidDebts?: Debt[]): Promise<void>
       for (const d of paidDebts) {
         await addDeletedDebtId(d.id);
         const note = d.note || '';
-        const newNote = note.startsWith('__DELETED__') ? note : '__DELETED__' + note;
-        await supabase.from('debts').update({ note: newNote }).eq('id', d.id);
+        const newNote = note.startsWith(DELETED_PREFIX) ? note : DELETED_PREFIX + note;
+        await supabase.from(TABLE).update({ note: newNote }).eq('id', d.id);
       }
     }
   } catch (err) {
@@ -335,11 +272,9 @@ export async function clearPaidDebtsInBackend(paidDebts?: Debt[]): Promise<void>
 export async function restoreDebtInBackend(id: string, debt: Debt): Promise<void> {
   await removeDeletedDebtId(id);
   try {
-    const cleanNote = (debt.note || '').replace(/^__DELETED__/, '');
-    const { error } = await supabase.from('debts').update({ note: cleanNote }).eq('id', id);
-    if (error) {
-      await supabase.from('deudas').update({ note: cleanNote }).eq('id', id);
-    }
+    const cleanNote = stripDeletedPrefix(debt.note);
+    const { error } = await supabase.from(TABLE).update({ note: cleanNote }).eq('id', id);
+    if (error) console.warn('Error restoring debt in Supabase', error);
   } catch (err) {
     console.warn('Error restoring debt in Supabase', err);
   }

@@ -1,8 +1,20 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, withTimeout } from '../lib/supabase';
+import {
+  createIdSetStore,
+  generateId,
+  isUuid,
+  mergeWithRemote,
+  singleFlight,
+  stripDeletedPrefix,
+  DELETED_PREFIX,
+} from '../lib/sync';
 import { Ingredient } from '../types';
 
 const STORAGE_KEY = '@imperio_galletil_ingredients';
+const TABLE = 'ingredients';
+
+const pendingIngredients = createIdSetStore('@imperio_galletil_pending_ingredients');
 
 export const INITIAL_INGREDIENTS: Ingredient[] = [
   {
@@ -167,102 +179,108 @@ export async function removeDeletedIngredientId(id: string): Promise<void> {
 
 export function isIngredientDeleted(item: Ingredient, deletedIds?: Set<string>): boolean {
   if (item.deleted || item.is_deleted) return true;
-  if (typeof item.presentation === 'string' && item.presentation.startsWith('__DELETED__')) return true;
+  if (typeof item.presentation === 'string' && item.presentation.startsWith(DELETED_PREFIX)) return true;
   if (Array.isArray(item.category) && (item.category.includes('archived') || item.category.includes('deleted'))) return true;
   if (deletedIds && deletedIds.has(item.id)) return true;
   return false;
 }
 
-export async function fetchIngredients(): Promise<Ingredient[]> {
-  const deletedIdsList = await getDeletedIngredientIds();
-  const deletedIdsSet = new Set(deletedIdsList);
-  let list: Ingredient[] = [];
-  let isFetchSuccess = false;
+/** Content fingerprint used to recognize legacy local ingredients that already exist remotely. */
+export function ingredientContentKey(item: Ingredient): string {
+  return stripDeletedPrefix(item.name).trim().toLowerCase();
+}
 
-  // 1. Try Supabase English table 'ingredients' with timeout
+function fromRow(item: any): Ingredient {
+  return {
+    id: String(item.id),
+    name: item.name,
+    presentation: item.presentation,
+    category: Array.isArray(item.category) ? item.category : [item.category],
+    price_usd: Number(item.price_usd),
+    price_ves: Number(item.price_ves),
+    selected: false,
+    created_at: item.created_at,
+  };
+}
+
+function toRow(item: Ingredient) {
+  return {
+    id: item.id,
+    name: item.name,
+    presentation: item.presentation,
+    category: item.category,
+    price_usd: item.price_usd,
+    price_ves: item.price_ves,
+  };
+}
+
+/**
+ * Idempotent save: the id is generated on the device, so retries never duplicate rows.
+ * The id stays in the pending set until the server confirms the write.
+ */
+async function upsertIngredient(item: Ingredient): Promise<Ingredient> {
+  await pendingIngredients.add(item.id);
   try {
     const { data, error } = await withTimeout(
-      supabase
-        .from('ingredients')
-        .select('*')
-        .order('created_at', { ascending: true })
+      supabase.from(TABLE).upsert(toRow(item), { onConflict: 'id' }).select().single()
     );
+    if (!error && data) {
+      await pendingIngredients.remove(item.id);
+      return { ...fromRow(data), selected: !!item.selected };
+    }
+    if (error) console.warn('Error upserting ingredient in Supabase', error);
+  } catch (err) {
+    console.warn('Error upserting ingredient in Supabase', err);
+  }
+  return item;
+}
 
+async function syncIngredients(): Promise<Ingredient[]> {
+  const deletedIdsSet = new Set(await getDeletedIngredientIds());
+  const localList = await getCachedIngredients();
+  const activeLocalList = localList.filter((item) => !isIngredientDeleted(item, deletedIdsSet));
+
+  let remoteAll: Ingredient[] | null = null;
+  try {
+    const { data, error } = await withTimeout(
+      supabase.from(TABLE).select('*').order('created_at', { ascending: true })
+    );
     if (!error && Array.isArray(data)) {
-      isFetchSuccess = true;
-      list = data.map((item: any) => ({
-        id: String(item.id),
-        name: item.name,
-        presentation: item.presentation,
-        category: Array.isArray(item.category) ? item.category : [item.category],
-        price_usd: Number(item.price_usd),
-        price_ves: Number(item.price_ves),
-        selected: false,
-        created_at: item.created_at,
-      }));
+      remoteAll = data.map(fromRow);
     } else if (error) {
-      // 2. Try Supabase fallback Spanish table 'insumos' if table was not migrated yet
-      const { data: fallbackData, error: fallbackError } = await withTimeout(
-        supabase
-          .from('insumos')
-          .select('*')
-          .order('created_at', { ascending: true })
-      );
-
-      if (!fallbackError && Array.isArray(fallbackData)) {
-        isFetchSuccess = true;
-        list = fallbackData.map((item: any) => ({
-          id: String(item.id),
-          name: item.name,
-          presentation: item.presentation,
-          category: Array.isArray(item.category) ? item.category : [item.category],
-          price_usd: Number(item.price_usd),
-          price_ves: Number(item.price_ves),
-          selected: false,
-          created_at: item.created_at,
-        }));
-      }
+      console.warn('Supabase ingredients fetch failed, using local cache', error);
     }
   } catch (err) {
     console.warn('Supabase ingredients fetch failed, using local cache', err);
   }
 
   // Fallback to local cache if remote fetch failed
-  const localList = await getCachedIngredients();
-  const activeLocalList = localList.filter((item) => !isIngredientDeleted(item, deletedIdsSet));
-
-  if (!isFetchSuccess) {
+  if (!remoteAll) {
     return activeLocalList;
   }
 
-  // Filtrar catalogo remoto excluyendo insumos eliminados logicamente
-  const activeRemoteList = list.filter((item) => !isIngredientDeleted(item, deletedIdsSet));
-  const remoteMap = new Map(activeRemoteList.map((item) => [item.id, item]));
-  const localMap = new Map(activeLocalList.map((item) => [item.id, item]));
-
-  const merged: Ingredient[] = activeRemoteList.map((remoteItem) => {
-    const localItem = localMap.get(remoteItem.id);
-    return {
+  const { merged, toUpsert } = mergeWithRemote({
+    // Filtrar catalogo remoto excluyendo insumos eliminados logicamente
+    remote: remoteAll.filter((item) => !isIngredientDeleted(item, deletedIdsSet)),
+    remoteAll,
+    local: activeLocalList,
+    pendingIds: await pendingIngredients.getAll(),
+    contentKey: ingredientContentKey,
+    // Selection is a local-only UI state
+    combine: (remoteItem, localItem) => ({
       ...remoteItem,
       selected: localItem ? !!localItem.selected : false,
-      price_usd: localItem ? localItem.price_usd : remoteItem.price_usd,
-      price_ves: localItem ? localItem.price_ves : remoteItem.price_ves,
-    };
+    }),
   });
 
-  // Preserve any custom ingredients added locally by the user
-  for (const localItem of activeLocalList) {
-    if (!remoteMap.has(localItem.id) && !deletedIdsSet.has(localItem.id)) {
-      merged.push(localItem);
-      if (localItem.id.startsWith('local_')) {
-        createIngredientInBackend(localItem).catch(() => {});
-      }
-    }
-  }
-
+  await pendingIngredients.addMany(toUpsert.map((i) => i.id));
   await setCachedIngredients(merged);
+  await Promise.allSettled(toUpsert.map(upsertIngredient));
+
   return merged;
 }
+
+export const fetchIngredients = singleFlight(syncIngredients);
 
 export async function updateIngredientPriceInBackend(
   id: string,
@@ -271,102 +289,28 @@ export async function updateIngredientPriceInBackend(
 ): Promise<void> {
   try {
     const { error } = await supabase
-      .from('ingredients')
+      .from(TABLE)
       .update({ price_usd: priceUsd, price_ves: priceVes })
       .eq('id', id);
-
-    if (error) {
-      await supabase
-        .from('insumos')
-        .update({ price_usd: priceUsd, price_ves: priceVes })
-        .eq('id', id);
-    }
+    if (!error) return;
+    console.warn('Error updating ingredient price in Supabase', error);
   } catch (err) {
     console.warn('Error updating ingredient price in Supabase', err);
   }
+  if (isUuid(id)) await pendingIngredients.add(id);
 }
 
 export async function createIngredientInBackend(
-  item: Omit<Ingredient, 'id'>
-): Promise<Ingredient | null> {
-  try {
-    const payload = {
-      name: item.name,
-      presentation: item.presentation,
-      category: item.category,
-      price_usd: item.price_usd,
-      price_ves: item.price_ves,
-    };
-
-    const { data, error } = await supabase
-      .from('ingredients')
-      .insert(payload)
-      .select()
-      .single();
-
-    if (!error && data) {
-      return {
-        id: String(data.id),
-        name: data.name,
-        presentation: data.presentation,
-        category: data.category,
-        price_usd: Number(data.price_usd),
-        price_ves: Number(data.price_ves),
-        selected: false,
-        created_at: data.created_at,
-      };
-    }
-
-    // Fallback to insumos if needed
-    const { data: fbData, error: fbError } = await supabase
-      .from('insumos')
-      .insert(payload)
-      .select()
-      .single();
-
-    if (!fbError && fbData) {
-      return {
-        id: String(fbData.id),
-        name: fbData.name,
-        presentation: fbData.presentation,
-        category: fbData.category,
-        price_usd: Number(fbData.price_usd),
-        price_ves: Number(fbData.price_ves),
-        selected: false,
-        created_at: fbData.created_at,
-      };
-    }
-  } catch (err) {
-    console.warn('Error creating ingredient in Supabase', err);
-  }
-
-  return null;
+  item: Omit<Ingredient, 'id'> | Ingredient
+): Promise<Ingredient> {
+  const currentId = 'id' in item ? item.id : undefined;
+  const withId: Ingredient = { ...item, id: isUuid(currentId) ? currentId : generateId() };
+  return upsertIngredient(withId);
 }
 
 export async function updateIngredientInBackend(item: Ingredient): Promise<void> {
-  try {
-    const payload = {
-      name: item.name,
-      presentation: item.presentation,
-      category: item.category,
-      price_usd: item.price_usd,
-      price_ves: item.price_ves,
-    };
-
-    const { error } = await supabase
-      .from('ingredients')
-      .update(payload)
-      .eq('id', item.id);
-
-    if (error) {
-      await supabase
-        .from('insumos')
-        .update(payload)
-        .eq('id', item.id);
-    }
-  } catch (err) {
-    console.warn('Error updating ingredient in Supabase', err);
-  }
+  if (!isUuid(item.id)) return; // legacy record, it will be migrated on next sync
+  await upsertIngredient(item);
 }
 
 export async function deleteIngredientInBackend(id: string, item?: Ingredient): Promise<void> {
@@ -374,21 +318,15 @@ export async function deleteIngredientInBackend(id: string, item?: Ingredient): 
   await addDeletedIngredientId(id);
   try {
     const pres = item?.presentation || '';
-    const newPres = pres.startsWith('__DELETED__') ? pres : '__DELETED__' + pres;
+    const newPres = pres.startsWith(DELETED_PREFIX) ? pres : DELETED_PREFIX + pres;
     const cats = Array.isArray(item?.category) ? item.category : [];
     const newCats = Array.from(new Set([...cats, 'archived']));
 
     const { error } = await supabase
-      .from('ingredients')
+      .from(TABLE)
       .update({ presentation: newPres, category: newCats })
       .eq('id', id);
-
-    if (error) {
-      await supabase
-        .from('insumos')
-        .update({ presentation: newPres, category: newCats })
-        .eq('id', id);
-    }
+    if (error) console.warn('Error soft deleting ingredient in Supabase', error);
   } catch (err) {
     console.warn('Error soft deleting ingredient in Supabase', err);
   }
@@ -397,23 +335,15 @@ export async function deleteIngredientInBackend(id: string, item?: Ingredient): 
 export async function restoreIngredientInBackend(id: string, item: Ingredient): Promise<void> {
   await removeDeletedIngredientId(id);
   try {
-    const cleanPres = (item.presentation || '').replace(/^__DELETED__/, '');
+    const cleanPres = stripDeletedPrefix(item.presentation);
     const cleanCats = (item.category || []).filter((c) => c !== 'archived' && c !== 'deleted');
 
     const { error } = await supabase
-      .from('ingredients')
+      .from(TABLE)
       .update({ presentation: cleanPres, category: cleanCats })
       .eq('id', id);
-
-    if (error) {
-      await supabase
-        .from('insumos')
-        .update({ presentation: cleanPres, category: cleanCats })
-        .eq('id', id);
-    }
+    if (error) console.warn('Error restoring ingredient in Supabase', error);
   } catch (err) {
     console.warn('Error restoring ingredient in Supabase', err);
   }
 }
-
-

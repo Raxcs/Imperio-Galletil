@@ -1,25 +1,28 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, withTimeout } from '../lib/supabase';
+import {
+  createIdSetStore,
+  generateId,
+  isUuid,
+  mergeWithRemote,
+  singleFlight,
+  stripDeletedPrefix,
+  DELETED_PREFIX,
+} from '../lib/sync';
 import { ProductionLog } from '../types';
 
 const STORAGE_KEY = '@imperio_galletil_production_logs';
+const TABLE = 'production_logs';
 
-export const INITIAL_PRODUCTION_LOGS: ProductionLog[] = [
-  {
-    id: '1',
-    name: 'Galletas Clasicas',
-    qty: 40,
-    price_ves: 1000,
-    cost_ves: 286.93,
-  },
-  {
-    id: '2',
-    name: 'Brownie con Galleta',
-    qty: 8,
-    price_ves: 2500,
-    cost_ves: 997.04,
-  },
-];
+/**
+ * Sample ids from the old hardcoded seed data. They were never real sales and
+ * were being re-inserted on every sync, so they are discarded from the cache.
+ */
+const LEGACY_SEED_IDS = new Set(['1', '2']);
+
+export const INITIAL_PRODUCTION_LOGS: ProductionLog[] = [];
+
+const pendingLogs = createIdSetStore('@imperio_galletil_pending_production_logs');
 
 export async function getCachedProductionLogs(): Promise<ProductionLog[]> {
   try {
@@ -33,7 +36,7 @@ export async function getCachedProductionLogs(): Promise<ProductionLog[]> {
   } catch (err) {
     console.warn('Error reading production logs cache', err);
   }
-  return INITIAL_PRODUCTION_LOGS;
+  return [];
 }
 
 export async function setCachedProductionLogs(items: ProductionLog[]): Promise<void> {
@@ -82,163 +85,116 @@ export async function removeDeletedProductionLogId(id: string): Promise<void> {
 
 export function isProductionLogDeleted(log: ProductionLog, deletedIds?: Set<string>): boolean {
   if (log.deleted || log.is_deleted) return true;
-  if (typeof log.name === 'string' && log.name.startsWith('__DELETED__')) return true;
+  if (typeof log.name === 'string' && log.name.startsWith(DELETED_PREFIX)) return true;
   if (deletedIds && deletedIds.has(log.id)) return true;
   return false;
 }
 
-export async function fetchProductionLogs(): Promise<ProductionLog[]> {
-  const deletedIdsList = await getDeletedProductionLogIds();
-  const deletedIdsSet = new Set(deletedIdsList);
-  let list: ProductionLog[] = [];
-  let isFetchSuccess = false;
+/** Content fingerprint used to recognize legacy local logs that already exist remotely. */
+export function productionLogContentKey(log: ProductionLog): string {
+  return [
+    stripDeletedPrefix(log.name).trim().toLowerCase(),
+    Number(log.qty),
+    Number(log.price_ves),
+    Number(log.cost_ves),
+  ].join('|');
+}
 
+function fromRow(item: any): ProductionLog {
+  return {
+    id: String(item.id),
+    name: item.name,
+    qty: Number(item.qty),
+    price_ves: Number(item.price_ves),
+    cost_ves: Number(item.cost_ves),
+    created_at: item.created_at,
+  };
+}
+
+function toRow(log: ProductionLog) {
+  return {
+    id: log.id,
+    name: log.name,
+    qty: log.qty,
+    price_ves: log.price_ves,
+    cost_ves: log.cost_ves,
+  };
+}
+
+/**
+ * Idempotent save: the id is generated on the device, so retries never duplicate rows.
+ * The id stays in the pending set until the server confirms the write.
+ */
+async function upsertProductionLog(log: ProductionLog): Promise<ProductionLog> {
+  await pendingLogs.add(log.id);
   try {
     const { data, error } = await withTimeout(
-      supabase
-        .from('production_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
+      supabase.from(TABLE).upsert(toRow(log), { onConflict: 'id' }).select().single()
     );
+    if (!error && data) {
+      await pendingLogs.remove(log.id);
+      return fromRow(data);
+    }
+    if (error) console.warn('Error upserting production log in Supabase', error);
+  } catch (err) {
+    console.warn('Error upserting production log in Supabase', err);
+  }
+  return log;
+}
 
+async function syncProductionLogs(): Promise<ProductionLog[]> {
+  const deletedIdsSet = new Set(await getDeletedProductionLogIds());
+  const localList = await getCachedProductionLogs();
+  const activeLocalList = localList.filter((l) => !isProductionLogDeleted(l, deletedIdsSet));
+
+  let remoteAll: ProductionLog[] | null = null;
+  try {
+    const { data, error } = await withTimeout(
+      supabase.from(TABLE).select('*').order('created_at', { ascending: false })
+    );
     if (!error && Array.isArray(data)) {
-      isFetchSuccess = true;
-      list = data
-        .filter((item: any) => !item.name?.startsWith('__DELETED__') && !deletedIdsSet.has(String(item.id)))
-        .map((item: any) => ({
-          id: String(item.id),
-          name: item.name,
-          qty: Number(item.qty),
-          price_ves: Number(item.price_ves),
-          cost_ves: Number(item.cost_ves),
-          created_at: item.created_at,
-        }));
+      remoteAll = data.map(fromRow);
     } else if (error) {
-      // Fallback to produccion table if present
-      const { data: fbData, error: fbError } = await withTimeout(
-        supabase
-          .from('produccion')
-          .select('*')
-          .order('created_at', { ascending: false })
-      );
-
-      if (!fbError && Array.isArray(fbData)) {
-        isFetchSuccess = true;
-        list = fbData
-          .filter((item: any) => !item.name?.startsWith('__DELETED__') && !deletedIdsSet.has(String(item.id)))
-          .map((item: any) => ({
-            id: String(item.id),
-            name: item.name,
-            qty: Number(item.qty),
-            price_ves: Number(item.price_ves),
-            cost_ves: Number(item.cost_ves),
-            created_at: item.created_at,
-          }));
-      }
+      console.warn('Error fetching production logs from Supabase', error);
     }
   } catch (err) {
     console.warn('Error fetching production logs from Supabase', err);
   }
 
-  const localList = await getCachedProductionLogs();
-  const activeLocalList = localList.filter((l) => !isProductionLogDeleted(l, deletedIdsSet));
-
-  if (!isFetchSuccess) {
-    return activeLocalList;
+  if (!remoteAll) {
+    return activeLocalList.filter((l) => !LEGACY_SEED_IDS.has(l.id));
   }
 
-  const remoteMap = new Map(list.map((p) => [p.id, p]));
-  const merged: ProductionLog[] = [...list];
+  const { merged, toUpsert } = mergeWithRemote({
+    remote: remoteAll.filter((l) => !isProductionLogDeleted(l, deletedIdsSet)),
+    remoteAll,
+    local: activeLocalList,
+    pendingIds: await pendingLogs.getAll(),
+    contentKey: productionLogContentKey,
+    discardLegacy: (l) => LEGACY_SEED_IDS.has(l.id),
+    prependLocal: true,
+  });
 
-  // Preserve and auto sync any local production logs
-  for (const local of activeLocalList) {
-    if (!remoteMap.has(local.id) && !deletedIdsSet.has(local.id)) {
-      merged.push(local);
-      addProductionLogInBackend(local).catch(() => {});
-    }
-  }
-
+  await pendingLogs.addMany(toUpsert.map((l) => l.id));
   await setCachedProductionLogs(merged);
+  await Promise.allSettled(toUpsert.map(upsertProductionLog));
+
   return merged;
 }
 
+export const fetchProductionLogs = singleFlight(syncProductionLogs);
+
 export async function addProductionLogInBackend(
-  log: Omit<ProductionLog, 'id'>
+  log: Omit<ProductionLog, 'id'> | ProductionLog
 ): Promise<ProductionLog> {
-  const payload = {
-    name: log.name,
-    qty: log.qty,
-    price_ves: log.price_ves,
-    cost_ves: log.cost_ves,
-  };
-
-  try {
-    const { data, error } = await supabase
-      .from('production_logs')
-      .insert(payload)
-      .select()
-      .single();
-
-    if (!error && data) {
-      return {
-        id: String(data.id),
-        name: data.name,
-        qty: Number(data.qty),
-        price_ves: Number(data.price_ves),
-        cost_ves: Number(data.cost_ves),
-        created_at: data.created_at,
-      };
-    }
-
-    const { data: fbData } = await supabase
-      .from('produccion')
-      .insert(payload)
-      .select()
-      .single();
-
-    if (fbData) {
-      return {
-        id: String(fbData.id),
-        name: fbData.name,
-        qty: Number(fbData.qty),
-        price_ves: Number(fbData.price_ves),
-        cost_ves: Number(fbData.cost_ves),
-        created_at: fbData.created_at,
-      };
-    }
-  } catch (err) {
-    console.warn('Error creating production log in Supabase', err);
-  }
-
-  return {
-    ...log,
-    id: 'temp_' + Date.now(),
-  };
+  const currentId = 'id' in log ? log.id : undefined;
+  const withId: ProductionLog = { ...log, id: isUuid(currentId) ? currentId : generateId() };
+  return upsertProductionLog(withId);
 }
 
 export async function updateProductionLogInBackend(log: ProductionLog): Promise<void> {
-  const payload = {
-    name: log.name,
-    qty: log.qty,
-    price_ves: log.price_ves,
-    cost_ves: log.cost_ves,
-  };
-
-  try {
-    const { error } = await supabase
-      .from('production_logs')
-      .update(payload)
-      .eq('id', log.id);
-
-    if (error) {
-      await supabase
-        .from('produccion')
-        .update(payload)
-        .eq('id', log.id);
-    }
-  } catch (err) {
-    console.warn('Error updating production log in Supabase', err);
-  }
+  if (!isUuid(log.id)) return; // legacy record, it will be migrated on next sync
+  await upsertProductionLog(log);
 }
 
 export async function deleteProductionLogInBackend(id: string, log?: ProductionLog): Promise<void> {
@@ -246,19 +202,9 @@ export async function deleteProductionLogInBackend(id: string, log?: ProductionL
   await addDeletedProductionLogId(id);
   try {
     const name = log?.name || '';
-    const newName = name.startsWith('__DELETED__') ? name : '__DELETED__' + name;
-
-    const { error } = await supabase
-      .from('production_logs')
-      .update({ name: newName })
-      .eq('id', id);
-
-    if (error) {
-      await supabase
-        .from('produccion')
-        .update({ name: newName })
-        .eq('id', id);
-    }
+    const newName = name.startsWith(DELETED_PREFIX) ? name : DELETED_PREFIX + name;
+    const { error } = await supabase.from(TABLE).update({ name: newName }).eq('id', id);
+    if (error) console.warn('Error soft deleting production log in Supabase', error);
   } catch (err) {
     console.warn('Error soft deleting production log in Supabase', err);
   }
@@ -267,22 +213,10 @@ export async function deleteProductionLogInBackend(id: string, log?: ProductionL
 export async function restoreProductionLogInBackend(id: string, log: ProductionLog): Promise<void> {
   await removeDeletedProductionLogId(id);
   try {
-    const cleanName = (log.name || '').replace(/^__DELETED__/, '');
-
-    const { error } = await supabase
-      .from('production_logs')
-      .update({ name: cleanName })
-      .eq('id', id);
-
-    if (error) {
-      await supabase
-        .from('produccion')
-        .update({ name: cleanName })
-        .eq('id', id);
-    }
+    const cleanName = stripDeletedPrefix(log.name);
+    const { error } = await supabase.from(TABLE).update({ name: cleanName }).eq('id', id);
+    if (error) console.warn('Error restoring production log in Supabase', error);
   } catch (err) {
     console.warn('Error restoring production log in Supabase', err);
   }
 }
-
-

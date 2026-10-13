@@ -26,6 +26,7 @@ import {
   calcPortionCost,
   getIngredientBase,
 } from '../services/recipesService';
+import { generateId } from '../lib/sync';
 
 interface RecipesScreenProps {
   recipes: Recipe[];
@@ -44,7 +45,7 @@ interface EditorIngredientRow {
 const AVAILABLE_UNITS = ['g', 'kg', 'un', 'ml'];
 
 function generateRecipeId(): string {
-  return 'recipe_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+  return generateId();
 }
 
 function generateRowId(): string {

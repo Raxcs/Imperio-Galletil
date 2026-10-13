@@ -42,6 +42,7 @@ yarn-error.*
 
 # agent and scratch tools
 .agents/
+.impeccable/
 skills-lock.json
 simulation.html
 
