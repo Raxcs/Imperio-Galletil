@@ -102,4 +102,18 @@ describe('Debts Business Logic and Auto-Purge', () => {
     expect(valid.map((d) => d.id)).toEqual(['1', '2']);
     expect(expiredIds).toEqual(['3']);
   });
+
+  it('should correctly detect soft deleted debts without removing from cloud DB', () => {
+    const { isDebtDeleted } = require('../services/debtsService');
+    const normalDebt = { id: 'd1', name: 'Maria', amount: 100, note: 'Normal' };
+    const markedDebt = { id: 'd2', name: 'Carlos', amount: 200, is_deleted: true };
+    const prefixDebt = { id: 'd3', name: 'Alejandro', amount: 300, note: '__DELETED__Nota original' };
+    const cachedIds = new Set(['d4']);
+
+    expect(isDebtDeleted(normalDebt as any)).toBe(false);
+    expect(isDebtDeleted(markedDebt as any)).toBe(true);
+    expect(isDebtDeleted(prefixDebt as any)).toBe(true);
+    expect(isDebtDeleted({ id: 'd4', name: 'Elena', amount: 400 } as any, cachedIds)).toBe(true);
+  });
 });
+

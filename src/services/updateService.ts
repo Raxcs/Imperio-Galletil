@@ -211,7 +211,7 @@ export async function downloadAndInstallApk(
     console.warn('Error in downloadAndInstallApk', err);
     try {
       await openAppUpdateDownload(downloadUrl);
-    } catch (_) {}
+    } catch {}
     return { success: false, error: err?.message || 'Error en instalacion nativa' };
   }
 }

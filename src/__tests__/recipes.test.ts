@@ -61,4 +61,18 @@ describe('Recipes Costing and Ingredients Logic', () => {
     expect(updatedCookies.batch_cost_usd).toBeCloseTo(originalSum + 1.0, 2);
     expect(updatedCookies.pack_cost_usd).toBeCloseTo(updatedCookies.batch_cost_usd / 23, 2);
   });
+
+  it('should correctly identify logically deleted recipes without permanent deletion', () => {
+    const { isRecipeDeleted } = require('../services/recipesService');
+    const normalRecipe = { id: 'r1', title: 'Galletas', subtitle: 'Normal' };
+    const markedRecipe = { id: 'r2', title: 'Galletas', subtitle: 'Normal', deleted: true };
+    const prefixRecipe = { id: 'r3', title: 'Galletas', subtitle: '__DELETED__Receta de la casa' };
+    const cachedDeletedIds = new Set(['r4']);
+
+    expect(isRecipeDeleted(normalRecipe as any)).toBe(false);
+    expect(isRecipeDeleted(markedRecipe as any)).toBe(true);
+    expect(isRecipeDeleted(prefixRecipe as any)).toBe(true);
+    expect(isRecipeDeleted({ id: 'r4', title: 'Torta' } as any, cachedDeletedIds)).toBe(true);
+  });
 });
+

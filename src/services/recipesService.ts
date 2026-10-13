@@ -128,6 +128,49 @@ export async function getCachedRecipes(): Promise<Recipe[]> {
   return INITIAL_RECIPES;
 }
 
+const DELETED_KEY = '@imperio_galletil_deleted_recipes';
+
+export async function getDeletedRecipeIds(): Promise<string[]> {
+  try {
+    const raw = await AsyncStorage.getItem(DELETED_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (err) {
+    console.warn('Error reading deleted recipes cache', err);
+  }
+  return [];
+}
+
+export async function addDeletedRecipeId(id: string): Promise<void> {
+  try {
+    const current = await getDeletedRecipeIds();
+    if (!current.includes(id)) {
+      await AsyncStorage.setItem(DELETED_KEY, JSON.stringify([...current, id]));
+    }
+  } catch (err) {
+    console.warn('Error saving deleted recipe id', err);
+  }
+}
+
+export async function removeDeletedRecipeId(id: string): Promise<void> {
+  try {
+    const current = await getDeletedRecipeIds();
+    const filtered = current.filter((x) => x !== id);
+    await AsyncStorage.setItem(DELETED_KEY, JSON.stringify(filtered));
+  } catch (err) {
+    console.warn('Error removing deleted recipe id', err);
+  }
+}
+
+export function isRecipeDeleted(recipe: Recipe, deletedIds?: Set<string>): boolean {
+  if (recipe.deleted || recipe.is_deleted) return true;
+  if (typeof recipe.subtitle === 'string' && recipe.subtitle.startsWith('__DELETED__')) return true;
+  if (deletedIds && deletedIds.has(recipe.id)) return true;
+  return false;
+}
+
 export async function setCachedRecipes(items: Recipe[]): Promise<void> {
   try {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(items));
@@ -137,6 +180,8 @@ export async function setCachedRecipes(items: Recipe[]): Promise<void> {
 }
 
 export async function fetchRecipes(): Promise<Recipe[]> {
+  const deletedIdsList = await getDeletedRecipeIds();
+  const deletedIdsSet = new Set(deletedIdsList);
   let list: Recipe[] = [];
   let isFetchSuccess = false;
 
@@ -146,29 +191,33 @@ export async function fetchRecipes(): Promise<Recipe[]> {
     );
     if (!error && Array.isArray(data)) {
       isFetchSuccess = true;
-      list = data.map((r: any) => ({
-        id: r.id,
-        title: r.title,
-        subtitle: r.subtitle || '',
-        batch_yield: Number(r.batch_yield),
-        batch_cost_usd: Number(r.batch_cost_usd),
-        pack_cost_usd: Number(r.pack_cost_usd),
-        process: r.process || '',
-        ingredients: Array.isArray(r.ingredients) ? r.ingredients : [],
-        created_at: r.created_at,
-      }));
+      list = data
+        .filter((r: any) => !r.subtitle?.startsWith('__DELETED__') && !deletedIdsSet.has(String(r.id)))
+        .map((r: any) => ({
+          id: String(r.id),
+          title: r.title,
+          subtitle: r.subtitle || '',
+          batch_yield: Number(r.batch_yield),
+          batch_cost_usd: Number(r.batch_cost_usd),
+          pack_cost_usd: Number(r.pack_cost_usd),
+          process: r.process || '',
+          ingredients: Array.isArray(r.ingredients) ? r.ingredients : [],
+          created_at: r.created_at,
+        }));
     }
   } catch (err) {
     console.warn('Error fetching recipes from Supabase', err);
   }
 
   const localList = await getCachedRecipes();
+  const activeLocalList = localList.filter((r) => !isRecipeDeleted(r, deletedIdsSet));
+
   if (!isFetchSuccess) {
-    return localList;
+    return activeLocalList;
   }
 
   const remoteMap = new Map(list.map((r) => [r.id, r]));
-  const localMap = new Map(localList.map((r) => [r.id, r]));
+  const localMap = new Map(activeLocalList.map((r) => [r.id, r]));
 
   // Merge remote recipes with local edits (local edits take priority)
   const merged: Recipe[] = list.map((remoteItem) => {
@@ -176,13 +225,11 @@ export async function fetchRecipes(): Promise<Recipe[]> {
     return localItem ? { ...remoteItem, process: localItem.process || remoteItem.process } : remoteItem;
   });
 
-  // Preserve any custom recipes created locally by the user
-  for (const localItem of localList) {
-    if (!remoteMap.has(localItem.id)) {
+  // Preserve and auto sync any custom recipes created locally by the user
+  for (const localItem of activeLocalList) {
+    if (!remoteMap.has(localItem.id) && !deletedIdsSet.has(localItem.id)) {
       merged.push(localItem);
-      if (localItem.id.startsWith('local_')) {
-        createRecipeInBackend(localItem).catch(() => {});
-      }
+      createRecipeInBackend(localItem).catch(() => {});
     }
   }
 
@@ -206,7 +253,7 @@ export async function updateRecipeProcessInBackend(
 
 export async function createRecipeInBackend(recipe: Recipe): Promise<void> {
   try {
-    await supabase.from('recipes').insert([
+    await supabase.from('recipes').upsert([
       {
         id: recipe.id,
         title: recipe.title,
@@ -219,6 +266,29 @@ export async function createRecipeInBackend(recipe: Recipe): Promise<void> {
       },
     ]);
   } catch (err) {
-    console.warn('Error creating recipe in Supabase', err);
+    console.warn('Error creating/upserting recipe in Supabase', err);
   }
 }
+
+export async function deleteRecipeInBackend(recipeId: string, recipe?: Recipe): Promise<void> {
+  // Soft delete: Nunca se borra permanentemente de la base de datos
+  await addDeletedRecipeId(recipeId);
+  try {
+    const sub = recipe?.subtitle || '';
+    const newSubtitle = sub.startsWith('__DELETED__') ? sub : '__DELETED__' + sub;
+    await supabase.from('recipes').update({ subtitle: newSubtitle }).eq('id', recipeId);
+  } catch (err) {
+    console.warn('Error soft deleting recipe in Supabase', err);
+  }
+}
+
+export async function restoreRecipeInBackend(recipe: Recipe): Promise<void> {
+  await removeDeletedRecipeId(recipe.id);
+  try {
+    const cleanSubtitle = (recipe.subtitle || '').replace(/^__DELETED__/, '');
+    await supabase.from('recipes').update({ subtitle: cleanSubtitle }).eq('id', recipe.id);
+  } catch (err) {
+    console.warn('Error restoring recipe in Supabase', err);
+  }
+}
+

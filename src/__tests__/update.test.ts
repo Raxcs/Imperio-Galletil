@@ -1,10 +1,7 @@
 import {
   checkForAppUpdate,
-  downloadAndInstallApk,
   isRemoteVersionNewer,
-  CURRENT_APP_VERSION,
 } from '../services/updateService';
-import { Platform } from 'react-native';
 
 describe('Update Service and In-App APK Downloader', () => {
   it('should compare semantic versions correctly', () => {

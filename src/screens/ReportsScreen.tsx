@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,16 +6,20 @@ import {
   TouchableOpacity,
   ScrollView,
   TextInput,
+  Modal,
   Alert,
   RefreshControl,
 } from 'react-native';
-import { Plus, Trash } from 'lucide-react-native';
+import { Plus, Pencil, Undo2, X } from 'lucide-react-native';
 import { THEME } from '../theme';
 import { ProductionLog, ExchangeRates, Recipe } from '../types';
+import { SwipeableRow } from '../components/SwipeableRow';
 import {
   fetchProductionLogs,
   addProductionLogInBackend,
+  updateProductionLogInBackend,
   deleteProductionLogInBackend,
+  restoreProductionLogInBackend,
   setCachedProductionLogs,
 } from '../services/productionService';
 
@@ -37,6 +41,17 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
 
   const [isAddFormVisible, setIsAddFormVisible] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Edit log modal state
+  const [editingLog, setEditingLog] = useState<ProductionLog | null>(null);
+  const [editLogName, setEditLogName] = useState('');
+  const [editLogQtyStr, setEditLogQtyStr] = useState('');
+  const [editLogPriceStr, setEditLogPriceStr] = useState('');
+  const [editLogCostStr, setEditLogCostStr] = useState('');
+
+  // Undo (Deshacer) state - strictly 5 seconds
+  const [deletedLogToUndo, setDeletedLogToUndo] = useState<ProductionLog | null>(null);
+  const undoTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -69,9 +84,9 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
   });
 
   const netProfitVes = Math.max(0, totalGrossVes - totalReinvestVes);
-  const netProfitUsd = netProfitVes / rates.usd_ves;
-  const grossUsd = totalGrossVes / rates.usd_ves;
-  const reinvestUsd = totalReinvestVes / rates.usd_ves;
+  const netProfitUsd = rates.usd_ves > 0 ? netProfitVes / rates.usd_ves : 0;
+  const grossUsd = rates.usd_ves > 0 ? totalGrossVes / rates.usd_ves : 0;
+  const reinvestUsd = rates.usd_ves > 0 ? totalReinvestVes / rates.usd_ves : 0;
 
   const margin = totalGrossVes > 0
     ? ((netProfitVes / totalGrossVes) * 100).toFixed(1)
@@ -124,227 +139,425 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
     setIsAddFormVisible(false);
   };
 
-  const handleDeleteLog = async (id: string) => {
-    Alert.alert(
-      'Eliminar Registro',
-      'Deseas eliminar este registro de produccion?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Eliminar',
-          style: 'destructive',
-          onPress: async () => {
-            const updated = logs.filter((l) => l.id !== id);
-            onLogsUpdated(updated);
-            await setCachedProductionLogs(updated);
-            await deleteProductionLogInBackend(id);
-          },
-        },
-      ]
-    );
+  const handleOpenEdit = (log: ProductionLog) => {
+    setEditingLog(log);
+    setEditLogName(log.name);
+    setEditLogQtyStr(log.qty.toString());
+    setEditLogPriceStr(log.price_ves.toString());
+    setEditLogCostStr(log.cost_ves.toString());
   };
 
+  const handleSaveEdit = async () => {
+    if (!editingLog) return;
+    const trimmed = editLogName.trim();
+    const qty = parseInt(editLogQtyStr, 10) || 0;
+    const price = parseFloat(editLogPriceStr) || 0;
+    const cost = parseFloat(editLogCostStr) || 0;
+
+    if (!trimmed || qty <= 0 || price <= 0) {
+      Alert.alert('Datos requeridos', 'Por favor ingresa un nombre, cantidad y precio valido.');
+      return;
+    }
+
+    const updatedLog: ProductionLog = {
+      ...editingLog,
+      name: trimmed,
+      qty,
+      price_ves: price,
+      cost_ves: cost,
+    };
+
+    const updated = logs.map((l) => (l.id === editingLog.id ? updatedLog : l));
+    onLogsUpdated(updated);
+    await setCachedProductionLogs(updated);
+    await updateProductionLogInBackend(updatedLog);
+    setEditingLog(null);
+  };
+
+  const handleDeleteLog = (id: string) => {
+    const logToDelete = logs.find((l) => l.id === id);
+    if (!logToDelete) return;
+
+    if (editingLog?.id === id) {
+      setEditingLog(null);
+    }
+
+    // Immediately remove from UI and cache
+    const updated = logs.filter((l) => l.id !== id);
+    onLogsUpdated(updated);
+    setCachedProductionLogs(updated);
+
+    // Provide Undo state
+    setDeletedLogToUndo(logToDelete);
+
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+    }
+
+    // 5-second grace period before permanent deletion in backend
+    undoTimerRef.current = setTimeout(async () => {
+      await deleteProductionLogInBackend(id, logToDelete);
+      setDeletedLogToUndo(null);
+    }, 5000);
+  };
+
+  const handleUndoDelete = async () => {
+    if (!deletedLogToUndo) return;
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+    const itemToRestore = deletedLogToUndo;
+    setDeletedLogToUndo(null);
+
+    const restored = [itemToRestore, ...logs];
+    onLogsUpdated(restored);
+    await setCachedProductionLogs(restored);
+    await restoreProductionLogInBackend(itemToRestore.id, itemToRestore);
+  };
+
+
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={isRefreshing}
-          onRefresh={handleRefresh}
-          tintColor={THEME.colors.accent}
-          colors={[THEME.colors.accent]}
-        />
-      }
-    >
-      {/* Top Banner: Ganancia Neta Libre */}
-      <View style={styles.netProfitCard}>
-        <View style={styles.netProfitHeader}>
-          <Text style={styles.netProfitTitle}>GANANCIA NETA LIBRE</Text>
-        </View>
-
-        <View style={styles.netProfitAmountRow}>
-          <Text style={styles.netProfitVes}>
-            Bs. {netProfitVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </Text>
-          <Text style={styles.netProfitUsd}>
-            ${netProfitUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-          </Text>
-        </View>
-
-        <View style={styles.marginRow}>
-          <Text style={styles.marginLabel}>Margen libre real</Text>
-          <Text style={styles.marginValue}>{margin}% de rentabilidad</Text>
-        </View>
-      </View>
-
-      {/* Two Secondary Metric Cards */}
-      <View style={styles.secondaryCardsGrid}>
-        {/* Total Cobrado */}
-        <View style={styles.secCard}>
-          <Text style={styles.secCardLabel}>TOTAL COBRADO</Text>
-          <Text style={styles.secCardVes}>
-            Bs. {totalGrossVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </Text>
-          <Text style={styles.secCardUsd}>
-            ${grossUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-          </Text>
-          <Text style={styles.secCardSub}>Ingreso bruto de venta</Text>
-        </View>
-
-        {/* Fondo a Reinvertir */}
-        <View style={styles.secCard}>
-          <Text style={styles.secCardLabel}>FONDO A REINVERTIR</Text>
-          <Text style={styles.secCardVes}>
-            Bs. {totalReinvestVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </Text>
-          <Text style={styles.secCardUsd}>
-            ${reinvestUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-          </Text>
-          <Text style={[styles.secCardSub, { color: THEME.colors.accent }]}>
-            Fondo intocable insumos
-          </Text>
-        </View>
-      </View>
-
-      {/* Production Log Section */}
-      <View style={styles.prodSectionCard}>
-        <View style={styles.prodSectionHeader}>
-          <View>
-            <Text style={styles.prodSectionTitle}>REGISTRO DE PRODUCCION</Text>
-            <Text style={styles.prodSectionSubtitle}>Productos elaborados en la jornada</Text>
+    <View style={styles.screenWrapper}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={THEME.colors.accent}
+            colors={[THEME.colors.accent]}
+          />
+        }
+      >
+        {/* Top Banner: Ganancia Neta Libre */}
+        <View style={styles.netProfitCard}>
+          <View style={styles.netProfitHeader}>
+            <Text style={styles.netProfitTitle}>GANANCIA NETA LIBRE</Text>
           </View>
-          <TouchableOpacity
-            style={styles.addProdBtn}
-            onPress={() => setIsAddFormVisible(!isAddFormVisible)}
-          >
-            <Plus size={14} color={THEME.colors.accent} strokeWidth={2.5} />
-            <Text style={styles.addProdBtnText}>Añadir</Text>
-          </TouchableOpacity>
+
+          <View style={styles.netProfitAmountRow}>
+            <Text style={styles.netProfitVes}>
+              Bs. {netProfitVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
+            <Text style={styles.netProfitUsd}>
+              ${netProfitUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+            </Text>
+          </View>
+
+          <View style={styles.marginRow}>
+            <Text style={styles.marginLabel}>Margen libre real</Text>
+            <View style={styles.marginPill}>
+              <Text style={styles.marginValue}>{margin}% de rentabilidad</Text>
+            </View>
+          </View>
         </View>
 
-        {/* Expandable Form */}
-        {isAddFormVisible && (
-          <View style={styles.addProdFormBox}>
-            <Text style={styles.formPromptTitle}>Nuevo Producto en Produccion</Text>
+        {/* Two Secondary Metric Cards */}
+        <View style={styles.secondaryCardsGrid}>
+          {/* Total Cobrado */}
+          <View style={styles.secCard}>
+            <Text style={styles.secCardLabel}>TOTAL COBRADO</Text>
+            <Text style={styles.secCardVes}>
+              Bs. {totalGrossVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
+            <Text style={styles.secCardUsd}>
+              ${grossUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+            </Text>
+            <Text style={styles.secCardSub}>Ingreso bruto de venta</Text>
+          </View>
 
-            {/* Presets based on actual recipes */}
-            <View style={styles.presetButtonsRow}>
-              {recipes.map((recipe) => {
-                const isActive = prodName.toLowerCase().trim() === recipe.title.toLowerCase().trim();
-                const unitCostVes = recipe.pack_cost_usd * rates.usd_ves;
-                return (
-                  <TouchableOpacity
-                    key={recipe.id}
-                    style={[styles.presetBtn, isActive && styles.presetBtnActive]}
-                    onPress={() => handleSelectRecipePreset(recipe)}
-                  >
-                    <Text style={[styles.presetBtnText, isActive && styles.presetBtnTextActive]}>
-                      {recipe.title} (Bs. {unitCostVes.toFixed(0)})
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+          {/* Fondo a Reinvertir */}
+          <View style={styles.secCard}>
+            <Text style={styles.secCardLabel}>FONDO A REINVERTIR</Text>
+            <Text style={[styles.secCardVes, { color: THEME.colors.accentLight }]}>
+              Bs. {totalReinvestVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
+            <Text style={styles.secCardUsd}>
+              ${reinvestUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+            </Text>
+            <Text style={styles.secCardSub}>
+              Fondo intocable insumos
+            </Text>
+          </View>
+        </View>
+
+        {/* Production Log Section */}
+        <View style={styles.prodSectionCard}>
+          <View style={styles.prodSectionHeader}>
+            <View>
+              <Text style={styles.prodSectionTitle}>REGISTRO DE PRODUCCION</Text>
+              <Text style={styles.prodSectionSubtitle}>Desliza para borrar o toca para editar</Text>
             </View>
-
-            <View style={styles.fieldWrapper}>
-              <Text style={styles.label}>Nombre del producto</Text>
-              <TextInput
-                style={styles.input}
-                value={prodName}
-                onChangeText={setProdName}
-                placeholder="Ej: Galletas Clasicas"
-                placeholderTextColor={THEME.colors.textMuted}
-              />
-            </View>
-
-            <View style={styles.rowFields}>
-              <View style={[styles.fieldWrapper, { flex: 1 }]}>
-                <Text style={styles.label}>Packs hechos</Text>
-                <TextInput
-                  style={styles.input}
-                  value={prodQtyStr}
-                  onChangeText={setProdQtyStr}
-                  keyboardType="numeric"
-                  placeholder="40"
-                  placeholderTextColor={THEME.colors.textMuted}
-                />
-              </View>
-
-              <View style={[styles.fieldWrapper, { flex: 1 }]}>
-                <Text style={styles.label}>Precio venta (Bs)</Text>
-                <TextInput
-                  style={styles.input}
-                  value={prodPriceStr}
-                  onChangeText={setProdPriceStr}
-                  keyboardType="numeric"
-                  placeholder="1000"
-                  placeholderTextColor={THEME.colors.textMuted}
-                />
-              </View>
-            </View>
-
-            <TouchableOpacity style={styles.submitProdBtn} onPress={handleAddProduction}>
-              <Text style={styles.submitProdBtnText}>Aceptar y Recalcular</Text>
+            <TouchableOpacity
+              style={styles.addProdBtn}
+              onPress={() => setIsAddFormVisible(!isAddFormVisible)}
+              activeOpacity={0.7}
+            >
+              <Plus size={13} color={THEME.colors.accent} strokeWidth={2.4} />
+              <Text style={styles.addProdBtnText}>Añadir</Text>
             </TouchableOpacity>
           </View>
-        )}
 
-        {/* List of items */}
-        <View style={styles.logsList}>
-          {logs.map((item) => {
-            const itemGross = item.qty * item.price_ves;
-            const itemCost = item.qty * item.cost_ves;
-            const itemProfit = itemGross - itemCost;
-            const itemProfitUsd = itemProfit / rates.usd_ves;
-            const itemGrossUsd = itemGross / rates.usd_ves;
+          {/* Expandable Form */}
+          {isAddFormVisible && (
+            <View style={styles.addProdFormBox}>
+              <Text style={styles.formPromptTitle}>Nuevo Producto en Produccion</Text>
 
-            return (
-              <View key={item.id} style={styles.logCard}>
-                <View style={styles.logLeft}>
-                  <Text style={styles.logName}>{item.name}</Text>
-                  <Text style={styles.logPacksText}>
-                    {item.qty} packs a Bs. {item.price_ves.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} c/u
-                  </Text>
-                  <Text style={styles.logProfitText}>
-                    Ganancia: Bs. {itemProfit.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${itemProfitUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
-                  </Text>
+              {/* Presets based on actual recipes */}
+              <View style={styles.presetButtonsRow}>
+                {recipes.map((recipe) => {
+                  const isActive = prodName.toLowerCase().trim() === recipe.title.toLowerCase().trim();
+                  const unitCostVes = recipe.pack_cost_usd * rates.usd_ves;
+                  return (
+                    <TouchableOpacity
+                      key={recipe.id}
+                      style={[styles.presetBtn, isActive && styles.presetBtnActive]}
+                      onPress={() => handleSelectRecipePreset(recipe)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.presetBtnText, isActive && styles.presetBtnTextActive]}>
+                        {recipe.title} (Bs. {unitCostVes.toFixed(0)})
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <View style={styles.fieldWrapper}>
+                <Text style={styles.label}>Nombre del producto</Text>
+                <TextInput
+                  style={styles.input}
+                  value={prodName}
+                  onChangeText={setProdName}
+                  placeholder="Ej: Galletas Clasicas"
+                  placeholderTextColor={THEME.colors.textMuted}
+                />
+              </View>
+
+              <View style={styles.rowFields}>
+                <View style={[styles.fieldWrapper, { flex: 1 }]}>
+                  <Text style={styles.label}>Packs hechos</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={prodQtyStr}
+                    onChangeText={setProdQtyStr}
+                    keyboardType="numeric"
+                    placeholder="40"
+                    placeholderTextColor={THEME.colors.textMuted}
+                  />
                 </View>
 
-                <View style={styles.logRight}>
-                  <View style={styles.logPriceBlock}>
-                    <Text style={styles.logGrossVes}>
-                      Bs. {itemGross.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </Text>
-                    <Text style={styles.logGrossUsd}>
-                      ${itemGrossUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.deleteBtn}
-                    onPress={() => handleDeleteLog(item.id)}
-                  >
-                    <Trash size={16} color={THEME.colors.danger} strokeWidth={2} />
-                  </TouchableOpacity>
+                <View style={[styles.fieldWrapper, { flex: 1 }]}>
+                  <Text style={styles.label}>Precio venta (Bs)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={prodPriceStr}
+                    onChangeText={setProdPriceStr}
+                    keyboardType="numeric"
+                    placeholder="1000"
+                    placeholderTextColor={THEME.colors.textMuted}
+                  />
                 </View>
               </View>
-            );
-          })}
+
+              <TouchableOpacity style={styles.submitProdBtn} onPress={handleAddProduction} activeOpacity={0.8}>
+                <Text style={styles.submitProdBtnText}>Aceptar y Recalcular</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* List of items */}
+          <View style={styles.logsList}>
+            {logs.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>Sin lotes registrados</Text>
+                <Text style={styles.emptyText}>Toca en Añadir para registrar los packs producidos hoy.</Text>
+              </View>
+            ) : (
+              logs.map((item) => {
+                const itemGross = item.qty * item.price_ves;
+                const itemCost = item.qty * item.cost_ves;
+                const itemProfit = itemGross - itemCost;
+                const itemProfitUsd = rates.usd_ves > 0 ? itemProfit / rates.usd_ves : 0;
+                const itemGrossUsd = rates.usd_ves > 0 ? itemGross / rates.usd_ves : 0;
+
+                return (
+                  <SwipeableRow
+                    key={item.id}
+                    onDelete={() => handleDeleteLog(item.id)}
+                    deleteLabel="Eliminar"
+                  >
+                    <TouchableOpacity
+                      style={styles.logCard}
+                      onPress={() => handleOpenEdit(item)}
+                      activeOpacity={0.85}
+                    >
+                      <View style={styles.logLeft}>
+                        <Text style={styles.logName}>{item.name}</Text>
+                        <Text style={styles.logPacksText}>
+                          {item.qty} packs a Bs. {item.price_ves.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} c/u
+                        </Text>
+                        <Text style={styles.logProfitText}>
+                          Ganancia: Bs. {itemProfit.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${itemProfitUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                        </Text>
+                      </View>
+
+                      <View style={styles.logRight}>
+                        <View style={styles.logPriceBlock}>
+                          <Text style={styles.logGrossVes}>
+                            Bs. {itemGross.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </Text>
+                          <Text style={styles.logGrossUsd}>
+                            ${itemGrossUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                          </Text>
+                        </View>
+
+                        <TouchableOpacity
+                          style={styles.editIconBtn}
+                          onPress={() => handleOpenEdit(item)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          activeOpacity={0.7}
+                        >
+                          <Pencil size={13} color={THEME.colors.textMuted} strokeWidth={2} />
+                        </TouchableOpacity>
+                      </View>
+                    </TouchableOpacity>
+                  </SwipeableRow>
+                );
+              })
+            )}
+          </View>
         </View>
-      </View>
-    </ScrollView>
+      </ScrollView>
+
+      {/* Floating Undo (Deshacer) Banner */}
+      {deletedLogToUndo && (
+        <View style={styles.undoSnackbar}>
+          <View style={styles.undoTextWrapper}>
+            <Text style={styles.undoSnackbarTitle} numberOfLines={1}>
+              {`Lote "${deletedLogToUndo.name}" eliminado`}
+            </Text>
+            <Text style={styles.undoSnackbarSub}>Se borrara permanentemente en 5s</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.undoActionBtn}
+            onPress={handleUndoDelete}
+            activeOpacity={0.8}
+          >
+            <Undo2 size={13} color="#09090b" strokeWidth={2.6} />
+            <Text style={styles.undoActionText}>DESHACER</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Edit Production Log Modal */}
+      {editingLog && (
+        <Modal
+          visible={!!editingLog}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setEditingLog(null)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalBox}>
+              <View style={styles.modalHeader}>
+                <View>
+                  <Text style={styles.modalTitle}>Editar Produccion</Text>
+                  <Text style={styles.modalSubtitle}>Modifica cantidad, precio o costo del lote</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.modalCloseBtn}
+                  onPress={() => setEditingLog(null)}
+                  activeOpacity={0.7}
+                >
+                  <X size={18} color={THEME.colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.modalBody}>
+                <View style={styles.fieldWrapper}>
+                  <Text style={styles.label}>Nombre del producto</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={editLogName}
+                    onChangeText={setEditLogName}
+                    placeholder="Ej: Galletas Clasicas"
+                    placeholderTextColor={THEME.colors.textMuted}
+                  />
+                </View>
+
+                <View style={styles.rowFields}>
+                  <View style={[styles.fieldWrapper, { flex: 1 }]}>
+                    <Text style={styles.label}>Packs hechos</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={editLogQtyStr}
+                      onChangeText={setEditLogQtyStr}
+                      keyboardType="numeric"
+                      placeholder="40"
+                      placeholderTextColor={THEME.colors.textMuted}
+                    />
+                  </View>
+
+                  <View style={[styles.fieldWrapper, { flex: 1 }]}>
+                    <Text style={styles.label}>Precio venta (Bs)</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={editLogPriceStr}
+                      onChangeText={setEditLogPriceStr}
+                      keyboardType="numeric"
+                      placeholder="1000"
+                      placeholderTextColor={THEME.colors.textMuted}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.fieldWrapper}>
+                  <Text style={styles.label}>Costo unitario por pack (Bs)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={editLogCostStr}
+                    onChangeText={setEditLogCostStr}
+                    keyboardType="numeric"
+                    placeholder="286.93"
+                    placeholderTextColor={THEME.colors.textMuted}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.modalFooter}>
+                <TouchableOpacity
+                  style={styles.saveModalBtn}
+                  onPress={handleSaveEdit}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.saveModalBtnText}>Guardar Cambios</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  screenWrapper: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
   container: {
     flex: 1,
-    backgroundColor: THEME.colors.bg,
+    backgroundColor: 'transparent',
   },
   contentContainer: {
     padding: 16,
     gap: 14,
+    paddingBottom: 30,
   },
   netProfitCard: {
     backgroundColor: THEME.colors.card,
@@ -360,12 +573,11 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   netProfitTitle: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
     color: THEME.colors.accent,
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
-
   netProfitAmountRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -374,13 +586,15 @@ const styles = StyleSheet.create({
   },
   netProfitVes: {
     fontSize: 22,
-    fontWeight: '900',
+    fontWeight: '800',
     color: THEME.colors.textPrimary,
+    fontVariant: ['tabular-nums'],
   },
   netProfitUsd: {
     fontSize: 14,
     fontWeight: '700',
-    color: THEME.colors.accent,
+    color: THEME.colors.accentLight,
+    fontVariant: ['tabular-nums'],
   },
   marginRow: {
     flexDirection: 'row',
@@ -394,9 +608,17 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: THEME.colors.textSecondary,
   },
+  marginPill: {
+    backgroundColor: THEME.colors.successBg,
+    borderRadius: THEME.radius.full,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.25)',
+  },
   marginValue: {
-    fontSize: 11,
-    fontWeight: '800',
+    fontSize: 10,
+    fontWeight: '700',
     color: THEME.colors.success,
   },
   secondaryCardsGrid: {
@@ -416,17 +638,20 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: THEME.colors.textMuted,
     marginBottom: 4,
+    letterSpacing: 0.5,
   },
   secCardVes: {
     fontSize: 14,
     fontWeight: '800',
     color: THEME.colors.textPrimary,
     marginBottom: 2,
+    fontVariant: ['tabular-nums'],
   },
   secCardUsd: {
     fontSize: 10,
-    color: THEME.colors.textSecondary,
+    color: THEME.colors.textMuted,
     marginBottom: 4,
+    fontVariant: ['tabular-nums'],
   },
   secCardSub: {
     fontSize: 9,
@@ -452,23 +677,23 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     color: THEME.colors.textPrimary,
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
   },
   prodSectionSubtitle: {
     fontSize: 10,
-    color: THEME.colors.textSecondary,
+    color: THEME.colors.textMuted,
     marginTop: 1,
   },
   addProdBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#0c0a09',
+    backgroundColor: '#09090b',
     borderWidth: 1,
-    borderColor: THEME.colors.accentDark,
-    borderRadius: THEME.radius.md,
+    borderColor: THEME.colors.cardBorderHighlight,
+    borderRadius: THEME.radius.sm,
     paddingHorizontal: 8,
-    paddingVertical: 5,
+    paddingVertical: 4,
   },
   addProdBtnText: {
     fontSize: 11,
@@ -476,7 +701,7 @@ const styles = StyleSheet.create({
     color: THEME.colors.accent,
   },
   addProdFormBox: {
-    backgroundColor: '#0c0a09',
+    backgroundColor: '#09090b',
     borderRadius: THEME.radius.md,
     padding: 12,
     borderWidth: 1,
@@ -508,13 +733,13 @@ const styles = StyleSheet.create({
   },
   presetBtnText: {
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '600',
     color: THEME.colors.textSecondary,
     textAlign: 'center',
   },
   presetBtnTextActive: {
     color: THEME.colors.accentLight,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   fieldWrapper: {},
   rowFields: {
@@ -523,7 +748,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '600',
     color: THEME.colors.textSecondary,
     marginBottom: 4,
   },
@@ -533,7 +758,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: THEME.colors.cardBorder,
     paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingVertical: 8,
     fontSize: 12,
     fontWeight: '600',
     color: THEME.colors.textPrimary,
@@ -548,13 +773,13 @@ const styles = StyleSheet.create({
   submitProdBtnText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#0c0a09',
+    color: '#09090b',
   },
   logsList: {
     gap: 8,
   },
   logCard: {
-    backgroundColor: '#0c0a09',
+    backgroundColor: '#09090b',
     borderRadius: THEME.radius.md,
     borderWidth: 1,
     borderColor: THEME.colors.cardBorder,
@@ -568,7 +793,7 @@ const styles = StyleSheet.create({
   },
   logName: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
     color: THEME.colors.textPrimary,
   },
   logPacksText: {
@@ -581,6 +806,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: THEME.colors.accentLight,
     marginTop: 2,
+    fontVariant: ['tabular-nums'],
   },
   logRight: {
     flexDirection: 'row',
@@ -594,13 +820,164 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: THEME.colors.textPrimary,
+    fontVariant: ['tabular-nums'],
   },
   logGrossUsd: {
     fontSize: 10,
-    color: THEME.colors.textSecondary,
+    color: THEME.colors.textMuted,
     marginTop: 1,
+    fontVariant: ['tabular-nums'],
   },
   deleteBtn: {
+    padding: 6,
+  },
+  editIconBtn: {
+    padding: 6,
+    borderRadius: THEME.radius.xs,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  emptyCard: {
+    padding: 18,
+    alignItems: 'center',
+  },
+  emptyTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: THEME.colors.textSecondary,
+    marginBottom: 2,
+  },
+  emptyText: {
+    fontSize: 10,
+    color: THEME.colors.textMuted,
+    textAlign: 'center',
+  },
+  // Undo Floating Snackbar
+  undoSnackbar: {
+    position: 'absolute',
+    bottom: 24,
+    left: 16,
+    right: 16,
+    backgroundColor: '#18181b',
+    borderRadius: THEME.radius.md,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: 'rgba(217, 119, 6, 0.4)',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    zIndex: 9999,
+  },
+  undoTextWrapper: {
+    flex: 1,
+    marginRight: 12,
+  },
+  undoSnackbarTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  undoSnackbarSub: {
+    fontSize: 10,
+    color: THEME.colors.textMuted,
+    marginTop: 1,
+  },
+  undoActionBtn: {
+    backgroundColor: THEME.colors.accent,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: THEME.radius.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  undoActionText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#09090b',
+    letterSpacing: 0.5,
+  },
+  // Edit Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalBox: {
+    width: '100%',
+    backgroundColor: '#121215',
+    borderRadius: THEME.radius.lg,
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorderHighlight,
+    padding: 18,
+    gap: 14,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.colors.cardBorder,
+  },
+  modalTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: THEME.colors.textPrimary,
+  },
+  modalSubtitle: {
+    fontSize: 11,
+    color: THEME.colors.textMuted,
+    marginTop: 2,
+  },
+  modalCloseBtn: {
     padding: 4,
+  },
+  modalBody: {
+    gap: 10,
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: THEME.colors.cardBorder,
+  },
+  deleteModalBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: THEME.radius.sm,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.25)',
+  },
+  deleteModalBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.colors.danger,
+  },
+  saveModalBtn: {
+    flex: 1,
+    backgroundColor: THEME.colors.accent,
+    paddingVertical: 10,
+    borderRadius: THEME.radius.sm,
+    alignItems: 'center',
+  },
+  saveModalBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#09090b',
   },
 });

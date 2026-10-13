@@ -129,7 +129,53 @@ export async function setCachedIngredients(items: Ingredient[]): Promise<void> {
   }
 }
 
+const DELETED_KEY = '@imperio_galletil_deleted_ingredients';
+
+export async function getDeletedIngredientIds(): Promise<string[]> {
+  try {
+    const raw = await AsyncStorage.getItem(DELETED_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (err) {
+    console.warn('Error reading deleted ingredients cache', err);
+  }
+  return [];
+}
+
+export async function addDeletedIngredientId(id: string): Promise<void> {
+  try {
+    const current = await getDeletedIngredientIds();
+    if (!current.includes(id)) {
+      await AsyncStorage.setItem(DELETED_KEY, JSON.stringify([...current, id]));
+    }
+  } catch (err) {
+    console.warn('Error saving deleted ingredient id', err);
+  }
+}
+
+export async function removeDeletedIngredientId(id: string): Promise<void> {
+  try {
+    const current = await getDeletedIngredientIds();
+    const filtered = current.filter((x) => x !== id);
+    await AsyncStorage.setItem(DELETED_KEY, JSON.stringify(filtered));
+  } catch (err) {
+    console.warn('Error removing deleted ingredient id', err);
+  }
+}
+
+export function isIngredientDeleted(item: Ingredient, deletedIds?: Set<string>): boolean {
+  if (item.deleted || item.is_deleted) return true;
+  if (typeof item.presentation === 'string' && item.presentation.startsWith('__DELETED__')) return true;
+  if (Array.isArray(item.category) && (item.category.includes('archived') || item.category.includes('deleted'))) return true;
+  if (deletedIds && deletedIds.has(item.id)) return true;
+  return false;
+}
+
 export async function fetchIngredients(): Promise<Ingredient[]> {
+  const deletedIdsList = await getDeletedIngredientIds();
+  const deletedIdsSet = new Set(deletedIdsList);
   let list: Ingredient[] = [];
   let isFetchSuccess = false;
 
@@ -183,15 +229,18 @@ export async function fetchIngredients(): Promise<Ingredient[]> {
 
   // Fallback to local cache if remote fetch failed
   const localList = await getCachedIngredients();
+  const activeLocalList = localList.filter((item) => !isIngredientDeleted(item, deletedIdsSet));
+
   if (!isFetchSuccess) {
-    return localList;
+    return activeLocalList;
   }
 
-  // Merge remote catalog with local modifications
-  const remoteMap = new Map(list.map((item) => [item.id, item]));
-  const localMap = new Map(localList.map((item) => [item.id, item]));
+  // Filtrar catalogo remoto excluyendo insumos eliminados logicamente
+  const activeRemoteList = list.filter((item) => !isIngredientDeleted(item, deletedIdsSet));
+  const remoteMap = new Map(activeRemoteList.map((item) => [item.id, item]));
+  const localMap = new Map(activeLocalList.map((item) => [item.id, item]));
 
-  const merged: Ingredient[] = list.map((remoteItem) => {
+  const merged: Ingredient[] = activeRemoteList.map((remoteItem) => {
     const localItem = localMap.get(remoteItem.id);
     return {
       ...remoteItem,
@@ -202,8 +251,8 @@ export async function fetchIngredients(): Promise<Ingredient[]> {
   });
 
   // Preserve any custom ingredients added locally by the user
-  for (const localItem of localList) {
-    if (!remoteMap.has(localItem.id)) {
+  for (const localItem of activeLocalList) {
+    if (!remoteMap.has(localItem.id) && !deletedIdsSet.has(localItem.id)) {
       merged.push(localItem);
       if (localItem.id.startsWith('local_')) {
         createIngredientInBackend(localItem).catch(() => {});
@@ -293,3 +342,78 @@ export async function createIngredientInBackend(
 
   return null;
 }
+
+export async function updateIngredientInBackend(item: Ingredient): Promise<void> {
+  try {
+    const payload = {
+      name: item.name,
+      presentation: item.presentation,
+      category: item.category,
+      price_usd: item.price_usd,
+      price_ves: item.price_ves,
+    };
+
+    const { error } = await supabase
+      .from('ingredients')
+      .update(payload)
+      .eq('id', item.id);
+
+    if (error) {
+      await supabase
+        .from('insumos')
+        .update(payload)
+        .eq('id', item.id);
+    }
+  } catch (err) {
+    console.warn('Error updating ingredient in Supabase', err);
+  }
+}
+
+export async function deleteIngredientInBackend(id: string, item?: Ingredient): Promise<void> {
+  // Soft delete: Nunca se borra permanentemente de la base de datos
+  await addDeletedIngredientId(id);
+  try {
+    const pres = item?.presentation || '';
+    const newPres = pres.startsWith('__DELETED__') ? pres : '__DELETED__' + pres;
+    const cats = Array.isArray(item?.category) ? item.category : [];
+    const newCats = Array.from(new Set([...cats, 'archived']));
+
+    const { error } = await supabase
+      .from('ingredients')
+      .update({ presentation: newPres, category: newCats })
+      .eq('id', id);
+
+    if (error) {
+      await supabase
+        .from('insumos')
+        .update({ presentation: newPres, category: newCats })
+        .eq('id', id);
+    }
+  } catch (err) {
+    console.warn('Error soft deleting ingredient in Supabase', err);
+  }
+}
+
+export async function restoreIngredientInBackend(id: string, item: Ingredient): Promise<void> {
+  await removeDeletedIngredientId(id);
+  try {
+    const cleanPres = (item.presentation || '').replace(/^__DELETED__/, '');
+    const cleanCats = (item.category || []).filter((c) => c !== 'archived' && c !== 'deleted');
+
+    const { error } = await supabase
+      .from('ingredients')
+      .update({ presentation: cleanPres, category: cleanCats })
+      .eq('id', id);
+
+    if (error) {
+      await supabase
+        .from('insumos')
+        .update({ presentation: cleanPres, category: cleanCats })
+        .eq('id', id);
+    }
+  } catch (err) {
+    console.warn('Error restoring ingredient in Supabase', err);
+  }
+}
+
+

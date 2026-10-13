@@ -53,6 +53,7 @@ describe('Exchange Rates Service and Conversions', () => {
         return Promise.reject(new Error('Unknown url'));
       }) as any;
 
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { syncBcvRates } = require('../services/exchangeRatesService');
       const result = await syncBcvRates();
       expect(result.updated).toBe(true);

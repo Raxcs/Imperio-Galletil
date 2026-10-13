@@ -74,4 +74,33 @@ describe('Production Calculations and Financial Metrics', () => {
     expect(netProfit).toBe(0);
     expect(margin).toBe(0);
   });
+
+  it('should correctly detect soft deleted production logs', () => {
+    const { isProductionLogDeleted } = require('../services/productionService');
+    const normalLog = { id: 'p1', name: 'Galletas Clasicas', qty: 10, price_ves: 100, cost_ves: 50 };
+    const markedLog = { id: 'p2', name: 'Galletas', qty: 10, price_ves: 100, cost_ves: 50, deleted: true };
+    const prefixLog = { id: 'p3', name: '__DELETED__Galletas', qty: 10, price_ves: 100, cost_ves: 50 };
+    const cachedIds = new Set(['p4']);
+
+    expect(isProductionLogDeleted(normalLog as any)).toBe(false);
+    expect(isProductionLogDeleted(markedLog as any)).toBe(true);
+    expect(isProductionLogDeleted(prefixLog as any)).toBe(true);
+    expect(isProductionLogDeleted({ id: 'p4', name: 'Test' } as any, cachedIds)).toBe(true);
+  });
+
+  it('should correctly detect soft deleted ingredients without removing from cloud DB', () => {
+    const { isIngredientDeleted } = require('../services/ingredientsService');
+    const normalIng = { id: 'i1', name: 'Harina', presentation: '1kg', category: ['galletas'] };
+    const markedIng = { id: 'i2', name: 'Azucar', presentation: '1kg', is_deleted: true };
+    const prefixIng = { id: 'i3', name: 'Mantequilla', presentation: '__DELETED__1kg', category: ['galletas'] };
+    const archivedIng = { id: 'i4', name: 'Cacao', presentation: '500g', category: ['archived'] };
+    const cachedIds = new Set(['i5']);
+
+    expect(isIngredientDeleted(normalIng as any)).toBe(false);
+    expect(isIngredientDeleted(markedIng as any)).toBe(true);
+    expect(isIngredientDeleted(prefixIng as any)).toBe(true);
+    expect(isIngredientDeleted(archivedIng as any)).toBe(true);
+    expect(isIngredientDeleted({ id: 'i5', name: 'Vainilla' } as any, cachedIds)).toBe(true);
+  });
 });
+

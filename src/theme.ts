@@ -1,27 +1,30 @@
 export const THEME = {
   colors: {
-    bg: '#0c0a09', // stone-950
-    card: '#1c1917', // stone-900
-    cardElevated: '#18181b', // zinc-900
-    cardBorder: '#292524', // stone-800
-    cardBorderHighlight: 'rgba(245, 158, 11, 0.4)',
+    bg: '#09090b', // Deep OLED black
+    card: '#121215', // Minimalist elevated surface
+    cardElevated: '#18181b', // Modal / Popover surface
+    cardActive: '#1f1f23', // Active / Pressed surface
+    cardBorder: 'rgba(255, 255, 255, 0.08)', // Crisp hairline border
+    cardBorderSubtle: 'rgba(255, 255, 255, 0.04)',
+    cardBorderHighlight: 'rgba(245, 158, 11, 0.35)', // Amber glow border
     
-    textPrimary: '#ffffff',
-    textSecondary: '#a8a29e', // stone-400
-    textMuted: '#78716c', // stone-500
+    textPrimary: '#f4f4f5', // Crisp high-contrast zinc-100
+    textSecondary: '#a1a1aa', // Secondary zinc-400
+    textMuted: '#71717a', // Muted zinc-500
     
-    accent: '#f59e0b', // amber-500
-    accentLight: '#fcd34d', // amber-300
-    accentDark: '#78350f', // amber-900
-    accentBg: '#451a03', // amber-950
+    accent: '#f59e0b', // Amber-500
+    accentLight: '#fbbf24', // Amber-400
+    accentDark: '#78350f', // Amber-900
+    accentBg: 'rgba(245, 158, 11, 0.12)', // Subtle amber pill background
     
-    success: '#10b981', // emerald-500
-    successBg: '#064e3b', // emerald-950
+    success: '#10b981', // Emerald-500
+    successBg: 'rgba(16, 185, 129, 0.12)',
     
     danger: '#ef4444',
-    dangerBg: '#450a0a',
+    dangerBg: 'rgba(239, 68, 68, 0.12)',
   },
   radius: {
+    xs: 4,
     sm: 8,
     md: 12,
     lg: 16,

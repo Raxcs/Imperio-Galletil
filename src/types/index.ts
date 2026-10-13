@@ -6,6 +6,8 @@ export interface Ingredient {
   price_usd: number;
   price_ves: number;
   selected?: boolean;
+  deleted?: boolean;
+  is_deleted?: boolean;
   created_at?: string;
 }
 
@@ -17,6 +19,8 @@ export interface Debt {
   note?: string;
   paid: boolean;
   paid_date?: string | null;
+  deleted?: boolean;
+  is_deleted?: boolean;
   created_at?: string;
 }
 
@@ -26,6 +30,8 @@ export interface ProductionLog {
   qty: number;
   price_ves: number;
   cost_ves: number;
+  deleted?: boolean;
+  is_deleted?: boolean;
   created_at?: string;
 }
 
@@ -47,6 +53,8 @@ export interface Recipe {
   pack_cost_usd: number;
   process: string;
   ingredients: RecipeIngredient[];
+  deleted?: boolean;
+  is_deleted?: boolean;
   created_at?: string;
 }
 

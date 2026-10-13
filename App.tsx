@@ -32,16 +32,17 @@ import {
   ProductionLog,
 } from './src/types';
 import { getExchangeRates, DEFAULT_RATES, syncBcvRates } from './src/services/exchangeRatesService';
-import { getCachedIngredients, INITIAL_INGREDIENTS } from './src/services/ingredientsService';
-import { getCachedDebts, INITIAL_DEBTS } from './src/services/debtsService';
-import { getCachedRecipes, INITIAL_RECIPES, computeRecipesWithIngredients } from './src/services/recipesService';
-import { getCachedProductionLogs, INITIAL_PRODUCTION_LOGS } from './src/services/productionService';
+import { getCachedIngredients, INITIAL_INGREDIENTS, fetchIngredients } from './src/services/ingredientsService';
+import { getCachedDebts, INITIAL_DEBTS, fetchDebts } from './src/services/debtsService';
+import { getCachedRecipes, INITIAL_RECIPES, computeRecipesWithIngredients, fetchRecipes } from './src/services/recipesService';
+import { getCachedProductionLogs, INITIAL_PRODUCTION_LOGS, fetchProductionLogs } from './src/services/productionService';
 import {
   checkForAppUpdate,
   openAppUpdateDownload,
   downloadAndInstallApk,
   AppUpdateInfo,
 } from './src/services/updateService';
+import { CookieBackground } from './src/components/CookieBackground';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { DebtsScreen } from './src/screens/DebtsScreen';
 import { RecipesScreen } from './src/screens/RecipesScreen';
@@ -133,12 +134,64 @@ function MainAppContent() {
           }
         })
         .catch(() => {});
+
+      // 3. Sync all data entities with Supabase in background
+      Promise.allSettled([
+        fetchDebts(),
+        fetchIngredients(),
+        fetchRecipes(),
+        fetchProductionLogs(),
+      ]).then(([debtsRes, ingRes, recRes, logRes]) => {
+        if (!isMounted) return;
+        if (debtsRes.status === 'fulfilled' && Array.isArray(debtsRes.value)) {
+          setDebts(debtsRes.value);
+        }
+        if (ingRes.status === 'fulfilled' && Array.isArray(ingRes.value) && ingRes.value.length > 0) {
+          setIngredients(ingRes.value);
+        }
+        if (recRes.status === 'fulfilled' && Array.isArray(recRes.value) && recRes.value.length > 0) {
+          setRecipes(recRes.value);
+        }
+        if (logRes.status === 'fulfilled' && Array.isArray(logRes.value)) {
+          setLogs(logRes.value);
+        }
+      }).catch(() => {});
     })();
 
     return () => {
       isMounted = false;
     };
   }, []);
+
+  const handleSyncAllCloudData = async () => {
+    try {
+      const [newRatesResult, newDebts, newIngredients, newRecipes, newLogs] = await Promise.allSettled([
+        syncBcvRates(),
+        fetchDebts(),
+        fetchIngredients(),
+        fetchRecipes(),
+        fetchProductionLogs(),
+      ]);
+
+      if (newRatesResult.status === 'fulfilled' && newRatesResult.value.updated) {
+        setRates(newRatesResult.value.rates);
+      }
+      if (newDebts.status === 'fulfilled' && Array.isArray(newDebts.value)) {
+        setDebts(newDebts.value);
+      }
+      if (newIngredients.status === 'fulfilled' && Array.isArray(newIngredients.value) && newIngredients.value.length > 0) {
+        setIngredients(newIngredients.value);
+      }
+      if (newRecipes.status === 'fulfilled' && Array.isArray(newRecipes.value) && newRecipes.value.length > 0) {
+        setRecipes(newRecipes.value);
+      }
+      if (newLogs.status === 'fulfilled' && Array.isArray(newLogs.value)) {
+        setLogs(newLogs.value);
+      }
+    } catch (err) {
+      console.warn('Error syncing cloud data', err);
+    }
+  };
 
   // Update check runner
   const runUpdateCheck = async (triggerPopup: boolean = false) => {
@@ -151,12 +204,12 @@ function MainAppContent() {
           setIsUpdateModalVisible(true);
         }
       }
-    } catch (err) {
+    } catch {
       // Silently handle update check failure
     }
   };
 
-  // Continuous update detection: startup delay, periodic 45s interval, and foreground AppState listener
+  // Continuous update detection
   useEffect(() => {
     const initialTimer = setTimeout(() => {
       runUpdateCheck(true);
@@ -180,14 +233,16 @@ function MainAppContent() {
   }, [dismissedVersion]);
 
   const safeTopPadding = Platform.OS === 'android'
-    ? Math.max(insets.top, StatusBar.currentHeight || 24) + 8
-    : Math.max(insets.top, 16);
+    ? Math.max(insets.top, StatusBar.currentHeight || 24) + 6
+    : Math.max(insets.top, 14);
 
   return (
     <View style={[styles.safeArea, { paddingTop: safeTopPadding }]}>
-      <StatusBar barStyle="light-content" backgroundColor="#09090b" />
+      {/* Repeating crash-proof cookie tile background */}
+      <CookieBackground />
+      <StatusBar barStyle="light-content" backgroundColor="#09090b" translucent />
 
-      {/* Notificacion In-App de Actualizacion */}
+      {/* In-App Update Notification Banner */}
       {updateInfo && updateInfo.hasUpdate && showInAppBanner && (
         <View style={styles.inAppBannerContainer}>
           <TouchableOpacity
@@ -197,7 +252,7 @@ function MainAppContent() {
           >
             <View style={styles.inAppBannerLeft}>
               <View style={styles.inAppBannerBadge}>
-                <Sparkles size={14} color="#0c0a09" strokeWidth={2.5} />
+                <Sparkles size={14} color="#09090b" strokeWidth={2.5} />
               </View>
               <View style={styles.inAppBannerTexts}>
                 <Text style={styles.inAppBannerTitle}>
@@ -213,6 +268,7 @@ function MainAppContent() {
               <TouchableOpacity
                 style={styles.inAppBannerBtn}
                 onPress={() => setIsUpdateModalVisible(true)}
+                activeOpacity={0.8}
               >
                 <Text style={styles.inAppBannerBtnText}>Instalar</Text>
               </TouchableOpacity>
@@ -228,13 +284,14 @@ function MainAppContent() {
         </View>
       )}
 
-      {/* Main Screen Content */}
+      {/* Main Screen Content Area */}
       <View style={styles.screenContainer}>
         {activeTab === 'home' && (
           <HomeScreen
             rates={rates}
             onRatesUpdated={setRates}
             onNavigateToProduction={() => setActiveTab('reports')}
+            onSyncAll={handleSyncAllCloudData}
           />
         )}
 
@@ -273,7 +330,7 @@ function MainAppContent() {
       </View>
 
       {/* Bottom Navigation Bar */}
-      <View style={[styles.bottomNav, { paddingBottom: insets.bottom > 0 ? insets.bottom + 4 : 8 }]}>
+      <View style={[styles.bottomNav, { paddingBottom: insets.bottom > 0 ? insets.bottom + 2 : 10 }]}>
         {/* Tab 1: Inicio */}
         <TouchableOpacity
           style={styles.navItem}
@@ -283,7 +340,7 @@ function MainAppContent() {
           <HomeIcon
             size={20}
             color={activeTab === 'home' ? THEME.colors.accent : THEME.colors.textMuted}
-            strokeWidth={activeTab === 'home' ? 2.5 : 2}
+            strokeWidth={activeTab === 'home' ? 2.4 : 1.8}
           />
           <Text
             style={[
@@ -304,7 +361,7 @@ function MainAppContent() {
           <WalletIcon
             size={20}
             color={activeTab === 'debts' ? THEME.colors.accent : THEME.colors.textMuted}
-            strokeWidth={activeTab === 'debts' ? 2.5 : 2}
+            strokeWidth={activeTab === 'debts' ? 2.4 : 1.8}
           />
           <Text
             style={[
@@ -325,7 +382,7 @@ function MainAppContent() {
           <BookOpenIcon
             size={20}
             color={activeTab === 'recipes' ? THEME.colors.accent : THEME.colors.textMuted}
-            strokeWidth={activeTab === 'recipes' ? 2.5 : 2}
+            strokeWidth={activeTab === 'recipes' ? 2.4 : 1.8}
           />
           <Text
             style={[
@@ -346,7 +403,7 @@ function MainAppContent() {
           <PackageIcon
             size={20}
             color={activeTab === 'ingredients' ? THEME.colors.accent : THEME.colors.textMuted}
-            strokeWidth={activeTab === 'ingredients' ? 2.5 : 2}
+            strokeWidth={activeTab === 'ingredients' ? 2.4 : 1.8}
           />
           <Text
             style={[
@@ -367,7 +424,7 @@ function MainAppContent() {
           <ChartBarIcon
             size={20}
             color={activeTab === 'reports' ? THEME.colors.accent : THEME.colors.textMuted}
-            strokeWidth={activeTab === 'reports' ? 2.5 : 2}
+            strokeWidth={activeTab === 'reports' ? 2.4 : 1.8}
           />
           <Text
             style={[
@@ -428,6 +485,7 @@ function MainAppContent() {
                       }
                       setIsUpdateModalVisible(false);
                     }}
+                    activeOpacity={0.7}
                   >
                     <Text style={styles.btnDismissUpdateText}>Continuar a la App</Text>
                   </TouchableOpacity>
@@ -435,6 +493,7 @@ function MainAppContent() {
                   <TouchableOpacity
                     style={styles.btnApplyUpdate}
                     onPress={handleStartUpdate}
+                    activeOpacity={0.8}
                   >
                     <Text style={styles.btnApplyUpdateText}>Actualizar Ahora</Text>
                   </TouchableOpacity>
@@ -511,7 +570,7 @@ const styles = StyleSheet.create({
   },
   screenContainer: {
     flex: 1,
-    backgroundColor: THEME.colors.bg,
+    backgroundColor: 'transparent',
   },
   errorContainer: {
     flex: 1,
@@ -548,35 +607,36 @@ const styles = StyleSheet.create({
   errorButtonText: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#0c0a09',
+    color: '#09090b',
   },
   bottomNav: {
     flexDirection: 'row',
-    backgroundColor: THEME.colors.card,
+    backgroundColor: 'rgba(18, 18, 21, 0.96)',
     borderTopWidth: 1,
     borderTopColor: THEME.colors.cardBorder,
     paddingTop: 8,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
   },
   navItem: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
-    paddingVertical: 2,
+    gap: 3,
+    paddingVertical: 3,
   },
   navLabel: {
     fontSize: 10,
-    fontWeight: '600',
+    fontWeight: '500',
     color: THEME.colors.textMuted,
+    letterSpacing: 0.1,
   },
   navLabelActive: {
     color: THEME.colors.accent,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   updateModalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.85)',
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
@@ -588,7 +648,7 @@ const styles = StyleSheet.create({
     borderRadius: THEME.radius.xl,
     padding: 20,
     borderWidth: 1,
-    borderColor: THEME.colors.accent,
+    borderColor: THEME.colors.cardBorderHighlight,
     gap: 12,
   },
   updateModalHeader: {},
@@ -600,7 +660,7 @@ const styles = StyleSheet.create({
   },
   updateModalTitle: {
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '800',
     color: THEME.colors.textPrimary,
     marginTop: 2,
   },
@@ -610,7 +670,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   changelogBox: {
-    backgroundColor: '#0c0a09',
+    backgroundColor: '#09090b',
     borderRadius: THEME.radius.md,
     padding: 10,
     borderWidth: 1,
@@ -634,29 +694,29 @@ const styles = StyleSheet.create({
   },
   btnDismissUpdate: {
     flex: 1,
-    backgroundColor: '#0c0a09',
+    backgroundColor: '#18181b',
     borderWidth: 1,
     borderColor: THEME.colors.cardBorder,
-    paddingVertical: 10,
+    paddingVertical: 11,
     borderRadius: THEME.radius.md,
     alignItems: 'center',
   },
   btnDismissUpdateText: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '600',
     color: THEME.colors.textSecondary,
   },
   btnApplyUpdate: {
     flex: 1,
     backgroundColor: THEME.colors.accent,
-    paddingVertical: 10,
+    paddingVertical: 11,
     borderRadius: THEME.radius.md,
     alignItems: 'center',
   },
   btnApplyUpdateText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '800',
-    color: '#0c0a09',
+    color: '#09090b',
   },
   downloadProgressSection: {
     marginTop: 6,
@@ -664,7 +724,7 @@ const styles = StyleSheet.create({
   },
   downloadProgressBarTrack: {
     height: 8,
-    backgroundColor: '#0c0a09',
+    backgroundColor: '#09090b',
     borderRadius: THEME.radius.full,
     overflow: 'hidden',
     borderWidth: 1,
@@ -690,9 +750,9 @@ const styles = StyleSheet.create({
     color: THEME.colors.accent,
   },
   inAppBannerContainer: {
-    backgroundColor: '#161413',
+    backgroundColor: 'rgba(18, 18, 21, 0.98)',
     borderBottomWidth: 1,
-    borderBottomColor: THEME.colors.accent,
+    borderBottomColor: THEME.colors.cardBorderHighlight,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
@@ -743,9 +803,9 @@ const styles = StyleSheet.create({
   inAppBannerBtnText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#0c0a09',
+    color: '#09090b',
   },
   inAppBannerClose: {
-    padding: 2,
+    padding: 3,
   },
 });

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,14 +10,17 @@ import {
   Alert,
   RefreshControl,
 } from 'react-native';
-import { ChevronRight, ChevronLeft, Copy, Pencil, Plus } from 'lucide-react-native';
+import { ChevronRight, ChevronLeft, Copy, Pencil, Plus, X, Undo2 } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { THEME } from '../theme';
 import { Recipe, ExchangeRates } from '../types';
+import { SwipeableRow } from '../components/SwipeableRow';
 import {
   fetchRecipes,
   updateRecipeProcessInBackend,
   createRecipeInBackend,
+  deleteRecipeInBackend,
+  restoreRecipeInBackend,
   setCachedRecipes,
 } from '../services/recipesService';
 
@@ -38,6 +41,10 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
   const [processEditText, setProcessEditText] = useState('');
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Undo (Deshacer) state - strictly 5 seconds
+  const [deletedRecipeToUndo, setDeletedRecipeToUndo] = useState<Recipe | null>(null);
+  const undoTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // New recipe modal state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -148,103 +155,154 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
     await updateRecipeProcessInBackend(selectedRecipe.id, trimmed);
   };
 
+  const handleDeleteRecipe = (recipeId: string) => {
+    const recipeToDelete = recipes.find((r) => r.id === recipeId);
+    if (!recipeToDelete) return;
+
+    if (selectedRecipeId === recipeId) {
+      setSelectedRecipeId(null);
+    }
+
+    // Immediately remove from UI and cache
+    const updated = recipes.filter((r) => r.id !== recipeId);
+    onRecipesUpdated(updated);
+    setCachedRecipes(updated);
+
+    // Provide Undo state
+    setDeletedRecipeToUndo(recipeToDelete);
+
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+    }
+
+    // 5-second grace period before permanent deletion in backend
+    undoTimerRef.current = setTimeout(async () => {
+      await deleteRecipeInBackend(recipeId, recipeToDelete);
+      setDeletedRecipeToUndo(null);
+    }, 5000);
+  };
+
+  const handleUndoDelete = async () => {
+    if (!deletedRecipeToUndo) return;
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+    const itemToRestore = deletedRecipeToUndo;
+    setDeletedRecipeToUndo(null);
+
+    const restored = [itemToRestore, ...recipes];
+    onRecipesUpdated(restored);
+    await setCachedRecipes(restored);
+    await restoreRecipeInBackend(itemToRestore);
+  };
+
   return (
     <View style={styles.screenWrapper}>
       <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.contentContainer}
-      showsVerticalScrollIndicator={false}
-      refreshControl={
-        <RefreshControl
-          refreshing={isRefreshing}
-          onRefresh={handleRefresh}
-          tintColor={THEME.colors.accent}
-          colors={[THEME.colors.accent]}
-        />
-      }
-    >
-      {/* Header Info */}
-      <View style={styles.headerInfo}>
-        <Text style={styles.headerSubtitle}>RECETARIO Y ESCANDALLO</Text>
-        <Text style={styles.headerDesc}>Toca cualquier receta para ver detalles e ingredientes</Text>
-      </View>
+        style={styles.container}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleRefresh}
+            tintColor={THEME.colors.accent}
+            colors={[THEME.colors.accent]}
+          />
+        }
+      >
+        {/* Header Info */}
+        <View style={styles.headerInfo}>
+          <Text style={styles.headerSubtitle}>RECETARIO Y ESCANDALLO</Text>
+          <Text style={styles.headerDesc}>Toca cualquier receta para ver detalles e ingredientes</Text>
+        </View>
 
-      {/* Recipe Cards List */}
-      <View style={styles.recipesList}>
-        {recipes.map((recipe) => {
-          const batchCostVes = recipe.batch_cost_usd * rates.usd_ves;
-          const packCostVes = recipe.pack_cost_usd * rates.usd_ves;
+        {/* Recipe Cards List */}
+        <View style={styles.recipesList}>
+          {recipes.map((recipe) => {
+            const batchCostVes = recipe.batch_cost_usd * rates.usd_ves;
+            const packCostVes = recipe.pack_cost_usd * rates.usd_ves;
 
-          return (
-            <TouchableOpacity
-              key={recipe.id}
-              style={styles.recipeCard}
-              onPress={() => openRecipeModal(recipe)}
-              activeOpacity={0.8}
-            >
-              <View style={styles.recipeCardHeader}>
-                <View>
-                  <Text style={styles.recipeCardTitle}>{recipe.title}</Text>
-                  <Text style={styles.recipeCardSubtitle}>{recipe.subtitle}</Text>
-                </View>
-                <View style={styles.chevronBox}>
-                  <ChevronRight size={18} color={THEME.colors.accent} strokeWidth={2.5} />
-                </View>
-              </View>
+            return (
+              <SwipeableRow
+                key={recipe.id}
+                onDelete={() => handleDeleteRecipe(recipe.id)}
+                deleteLabel="Eliminar"
+              >
+                <TouchableOpacity
+                  style={styles.recipeCard}
+                  onPress={() => openRecipeModal(recipe)}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.recipeCardHeader}>
+                    <View style={styles.recipeCardTitles}>
+                      <Text style={styles.recipeCardTitle}>{recipe.title}</Text>
+                      <Text style={styles.recipeCardSubtitle}>{recipe.subtitle}</Text>
+                    </View>
+                    <View style={styles.chevronBox}>
+                      <ChevronRight size={16} color={THEME.colors.accent} strokeWidth={2.4} />
+                    </View>
+                  </View>
 
-              <View style={styles.costsGrid}>
-                <View style={styles.costItem}>
-                  <Text style={styles.costLabel}>COSTO POR TANDA</Text>
-                  <Text style={styles.costMainVes}>
-                    Bs. {batchCostVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </Text>
-                  <Text style={styles.costSubUsd}>
-                    ${recipe.batch_cost_usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-                  </Text>
-                </View>
+                  <View style={styles.costsGrid}>
+                    <View style={styles.costItem}>
+                      <Text style={styles.costLabel}>COSTO POR TANDA</Text>
+                      <Text style={styles.costMainVes}>
+                        Bs. {batchCostVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </Text>
+                      <Text style={styles.costSubUsd}>
+                        ${recipe.batch_cost_usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                      </Text>
+                    </View>
 
-                <View style={styles.costItem}>
-                  <Text style={styles.costLabel}>COSTO POR PACK</Text>
-                  <Text style={[styles.costMainVes, { color: THEME.colors.accent }]}>
-                    Bs. {packCostVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </Text>
-                  <Text style={styles.costSubUsd}>
-                    ${recipe.pack_cost_usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-                  </Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </ScrollView>
+                    <View style={styles.costItem}>
+                      <Text style={styles.costLabel}>COSTO POR PACK</Text>
+                      <Text style={[styles.costMainVes, { color: THEME.colors.accent }]}>
+                        Bs. {packCostVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </Text>
+                      <Text style={styles.costSubUsd}>
+                        ${recipe.pack_cost_usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                      </Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              </SwipeableRow>
+            );
+          })}
+        </View>
+      </ScrollView>
 
-    {/* Floating Action Button */}
-    <TouchableOpacity
-      style={styles.fabBtn}
-      onPress={openCreateRecipeModal}
-      activeOpacity={0.85}
-    >
-      <Plus size={26} color="#0c0a09" strokeWidth={3} />
-    </TouchableOpacity>
+      {/* Floating Action Button */}
+      <TouchableOpacity
+        style={styles.fabBtn}
+        onPress={openCreateRecipeModal}
+        activeOpacity={0.85}
+      >
+        <Plus size={24} color="#09090b" strokeWidth={2.6} />
+      </TouchableOpacity>
 
-    {/* Recipe Details Full Modal */}
-    {selectedRecipe && (
+      {/* Recipe Details Full Modal */}
+      {selectedRecipe && (
         <Modal
           visible={!!selectedRecipe}
           animationType="slide"
           onRequestClose={closeRecipeModal}
         >
           <View style={styles.modalContainer}>
-            {/* Modal Header */}
+            {/* Modal Navigation Header */}
             <View style={styles.modalNavHeader}>
-              <TouchableOpacity style={styles.backButton} onPress={closeRecipeModal}>
-                <ChevronLeft size={20} color={THEME.colors.accent} strokeWidth={2.5} />
+              <TouchableOpacity style={styles.backButton} onPress={closeRecipeModal} activeOpacity={0.7}>
+                <ChevronLeft size={20} color={THEME.colors.accent} strokeWidth={2.4} />
                 <Text style={styles.backButtonText}>Volver a Recetas</Text>
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalContent}
+              showsVerticalScrollIndicator={false}
+            >
               {/* Recipe Titles */}
               <View style={styles.recipeTitleSection}>
                 <Text style={styles.modalRecipeTitle}>{selectedRecipe.title}</Text>
@@ -253,7 +311,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
 
               {/* Metrics Grid */}
               <View style={styles.metricsRow}>
-                {/* Costo por Tanda with Yield Badge directly below */}
+                {/* Costo por Tanda */}
                 <View style={styles.metricCard}>
                   <View>
                     <Text style={styles.metricLabel}>COSTO POR TANDA</Text>
@@ -338,6 +396,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
                     <TouchableOpacity
                       style={styles.actionBtnSmall}
                       onPress={handleCopyProcess}
+                      activeOpacity={0.7}
                     >
                       <Copy size={13} color={THEME.colors.accent} strokeWidth={2} />
                       <Text style={styles.actionBtnSmallText}>
@@ -348,6 +407,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
                     <TouchableOpacity
                       style={[styles.actionBtnSmall, isEditingProcess && styles.actionBtnActive]}
                       onPress={() => setIsEditingProcess(!isEditingProcess)}
+                      activeOpacity={0.7}
                     >
                       <Pencil size={13} color={THEME.colors.accent} strokeWidth={2} />
                       <Text style={styles.actionBtnSmallText}>
@@ -380,6 +440,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
                           setProcessEditText(selectedRecipe.process);
                           setIsEditingProcess(false);
                         }}
+                        activeOpacity={0.7}
                       >
                         <Text style={styles.btnCancelEditText}>Cancelar</Text>
                       </TouchableOpacity>
@@ -387,6 +448,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
                       <TouchableOpacity
                         style={styles.btnSaveEdit}
                         onPress={handleSaveProcess}
+                        activeOpacity={0.8}
                       >
                         <Text style={styles.btnSaveEditText}>Guardar Pasos</Text>
                       </TouchableOpacity>
@@ -396,7 +458,11 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
               </View>
 
               {/* Back to list button */}
-              <TouchableOpacity style={styles.bottomCloseBtn} onPress={closeRecipeModal}>
+              <TouchableOpacity
+                style={styles.bottomCloseBtn}
+                onPress={closeRecipeModal}
+                activeOpacity={0.7}
+              >
                 <Text style={styles.bottomCloseBtnText}>Volver a la Lista</Text>
               </TouchableOpacity>
             </ScrollView>
@@ -408,15 +474,15 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
       <Modal
         visible={isCreateModalOpen}
         transparent
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setIsCreateModalOpen(false)}
       >
         <View style={styles.createModalOverlay}>
           <View style={styles.createModalBox}>
             <View style={styles.createModalHeader}>
               <Text style={styles.createModalTitle}>Nueva Receta</Text>
-              <TouchableOpacity onPress={() => setIsCreateModalOpen(false)}>
-                <Text style={styles.createModalCloseText}>Cerrar</Text>
+              <TouchableOpacity onPress={() => setIsCreateModalOpen(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <X size={18} color={THEME.colors.textMuted} />
               </TouchableOpacity>
             </View>
 
@@ -483,13 +549,33 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
                 />
               </View>
 
-              <TouchableOpacity style={styles.saveRecipeBtn} onPress={handleSaveNewRecipe}>
+              <TouchableOpacity style={styles.saveRecipeBtn} onPress={handleSaveNewRecipe} activeOpacity={0.8}>
                 <Text style={styles.saveRecipeBtnText}>Guardar Receta</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
         </View>
       </Modal>
+
+      {/* Floating Undo (Deshacer) Banner */}
+      {deletedRecipeToUndo && (
+        <View style={styles.undoSnackbar}>
+          <View style={styles.undoTextWrapper}>
+            <Text style={styles.undoSnackbarTitle} numberOfLines={1}>
+              {`Receta "${deletedRecipeToUndo.title}" eliminada`}
+            </Text>
+            <Text style={styles.undoSnackbarSub}>Se borrara permanentemente en 5s</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.undoActionBtn}
+            onPress={handleUndoDelete}
+            activeOpacity={0.8}
+          >
+            <Undo2 size={13} color="#09090b" strokeWidth={2.6} />
+            <Text style={styles.undoActionText}>DESHACER</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 };
@@ -498,7 +584,7 @@ const styles = StyleSheet.create({
   screenWrapper: {
     flex: 1,
     position: 'relative',
-    backgroundColor: THEME.colors.bg,
+    backgroundColor: 'transparent',
   },
   container: {
     flex: 1,
@@ -506,106 +592,33 @@ const styles = StyleSheet.create({
   contentContainer: {
     padding: 16,
     gap: 14,
-    paddingBottom: 90,
+    paddingBottom: 96,
   },
   fabBtn: {
     position: 'absolute',
-    bottom: 24,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    bottom: 20,
+    right: 18,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: THEME.colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 8,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
     zIndex: 99,
-  },
-  createModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 16,
-  },
-  createModalBox: {
-    width: '100%',
-    maxWidth: 400,
-    maxHeight: '90%',
-    backgroundColor: THEME.colors.card,
-    borderRadius: THEME.radius.xl,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: THEME.colors.cardBorderHighlight,
-  },
-  createModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  createModalTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: THEME.colors.textPrimary,
-  },
-  createModalCloseText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: THEME.colors.textSecondary,
-  },
-  fieldWrapper: {
-    marginBottom: 12,
-  },
-  label: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: THEME.colors.textSecondary,
-    marginBottom: 6,
-  },
-  input: {
-    backgroundColor: '#0c0a09',
-    borderRadius: THEME.radius.md,
-    borderWidth: 1,
-    borderColor: THEME.colors.cardBorder,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 13,
-    fontWeight: '600',
-    color: THEME.colors.textPrimary,
-  },
-  textArea: {
-    minHeight: 80,
-  },
-  rowFields: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  saveRecipeBtn: {
-    backgroundColor: THEME.colors.accent,
-    paddingVertical: 12,
-    borderRadius: THEME.radius.md,
-    alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  saveRecipeBtnText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#0c0a09',
   },
   headerInfo: {
     paddingHorizontal: 2,
   },
   headerSubtitle: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
-    color: THEME.colors.textSecondary,
-    letterSpacing: 0.5,
+    color: THEME.colors.accent,
+    letterSpacing: 0.8,
   },
   headerDesc: {
     fontSize: 11,
@@ -613,7 +626,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   recipesList: {
-    gap: 12,
+    gap: 10,
   },
   recipeCard: {
     backgroundColor: THEME.colors.card,
@@ -626,11 +639,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 12,
+  },
+  recipeCardTitles: {
+    flex: 1,
+    marginRight: 8,
   },
   recipeCardTitle: {
-    fontSize: 16,
-    fontWeight: '900',
+    fontSize: 15,
+    fontWeight: '800',
     color: THEME.colors.textPrimary,
   },
   recipeCardSubtitle: {
@@ -639,10 +656,10 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   chevronBox: {
-    width: 28,
-    height: 28,
+    width: 26,
+    height: 26,
     borderRadius: THEME.radius.sm,
-    backgroundColor: '#0c0a09',
+    backgroundColor: '#09090b',
     borderWidth: 1,
     borderColor: THEME.colors.cardBorder,
     alignItems: 'center',
@@ -665,18 +682,20 @@ const styles = StyleSheet.create({
     marginBottom: 3,
   },
   costMainVes: {
-    fontSize: 15,
-    fontWeight: '900',
+    fontSize: 14,
+    fontWeight: '800',
     color: THEME.colors.textPrimary,
+    fontVariant: ['tabular-nums'],
   },
   costSubUsd: {
     fontSize: 11,
-    color: THEME.colors.textSecondary,
-    marginTop: 2,
+    color: THEME.colors.textMuted,
+    marginTop: 1,
+    fontVariant: ['tabular-nums'],
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: THEME.colors.bg,
+    backgroundColor: '#09090b',
   },
   modalNavHeader: {
     backgroundColor: THEME.colors.card,
@@ -701,11 +720,12 @@ const styles = StyleSheet.create({
   modalContent: {
     padding: 16,
     gap: 14,
+    paddingBottom: 40,
   },
   recipeTitleSection: {},
   modalRecipeTitle: {
-    fontSize: 19,
-    fontWeight: '900',
+    fontSize: 18,
+    fontWeight: '800',
     color: THEME.colors.textPrimary,
   },
   modalRecipeSubtitle: {
@@ -734,13 +754,15 @@ const styles = StyleSheet.create({
   },
   metricValueVes: {
     fontSize: 15,
-    fontWeight: '900',
+    fontWeight: '800',
     color: THEME.colors.textPrimary,
+    fontVariant: ['tabular-nums'],
   },
   metricValueUsd: {
     fontSize: 11,
     color: THEME.colors.textSecondary,
     marginTop: 1,
+    fontVariant: ['tabular-nums'],
   },
   badgeWrapper: {
     marginTop: 10,
@@ -750,7 +772,7 @@ const styles = StyleSheet.create({
   },
   yieldBadge: {
     backgroundColor: THEME.colors.accentBg,
-    borderColor: THEME.colors.accentDark,
+    borderColor: THEME.colors.cardBorderHighlight,
     borderWidth: 1,
     borderRadius: THEME.radius.full,
     paddingHorizontal: 8,
@@ -759,7 +781,7 @@ const styles = StyleSheet.create({
   },
   yieldBadgeText: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '700',
     color: THEME.colors.accentLight,
   },
   unitCaption: {
@@ -780,6 +802,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: THEME.colors.textPrimary,
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   sectionSubtitle: {
     fontSize: 10,
@@ -804,7 +827,7 @@ const styles = StyleSheet.create({
     color: THEME.colors.textPrimary,
   },
   ingredientAmount: {
-    fontSize: 10,
+    fontSize: 11,
     color: THEME.colors.textSecondary,
     marginTop: 1,
   },
@@ -813,13 +836,15 @@ const styles = StyleSheet.create({
   },
   ingPriceVes: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
     color: THEME.colors.textPrimary,
+    fontVariant: ['tabular-nums'],
   },
   ingPriceUsd: {
     fontSize: 10,
-    color: THEME.colors.textSecondary,
+    color: THEME.colors.textMuted,
     marginTop: 1,
+    fontVariant: ['tabular-nums'],
   },
   ingredientsTotalRow: {
     flexDirection: 'row',
@@ -836,6 +861,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '800',
     color: THEME.colors.accent,
+    fontVariant: ['tabular-nums'],
   },
   processHeader: {
     flexDirection: 'row',
@@ -853,7 +879,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#0c0a09',
+    backgroundColor: '#09090b',
     borderWidth: 1,
     borderColor: THEME.colors.cardBorder,
     paddingHorizontal: 8,
@@ -869,7 +895,7 @@ const styles = StyleSheet.create({
     color: THEME.colors.textSecondary,
   },
   processViewBox: {
-    backgroundColor: '#0c0a09',
+    backgroundColor: '#09090b',
     padding: 12,
     borderRadius: THEME.radius.md,
     borderWidth: 1,
@@ -884,7 +910,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   processTextInput: {
-    backgroundColor: '#0c0a09',
+    backgroundColor: '#09090b',
     borderWidth: 1,
     borderColor: THEME.colors.cardBorder,
     borderRadius: THEME.radius.md,
@@ -900,7 +926,7 @@ const styles = StyleSheet.create({
   },
   btnCancelEdit: {
     flex: 1,
-    backgroundColor: '#0c0a09',
+    backgroundColor: '#18181b',
     borderWidth: 1,
     borderColor: THEME.colors.cardBorder,
     paddingVertical: 9,
@@ -922,7 +948,7 @@ const styles = StyleSheet.create({
   btnSaveEditText: {
     fontSize: 12,
     fontWeight: '800',
-    color: '#0c0a09',
+    color: '#09090b',
   },
   bottomCloseBtn: {
     backgroundColor: THEME.colors.card,
@@ -938,5 +964,145 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: THEME.colors.textSecondary,
+  },
+  createModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  createModalBox: {
+    width: '100%',
+    maxWidth: 400,
+    maxHeight: '90%',
+    backgroundColor: THEME.colors.card,
+    borderRadius: THEME.radius.xl,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorderHighlight,
+  },
+  createModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  createModalTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: THEME.colors.textPrimary,
+  },
+  fieldWrapper: {
+    marginBottom: 12,
+  },
+  label: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: THEME.colors.textSecondary,
+    marginBottom: 6,
+  },
+  input: {
+    backgroundColor: '#09090b',
+    borderRadius: THEME.radius.md,
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    fontWeight: '600',
+    color: THEME.colors.textPrimary,
+  },
+  textArea: {
+    minHeight: 80,
+  },
+  rowFields: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  saveRecipeBtn: {
+    backgroundColor: THEME.colors.accent,
+    paddingVertical: 12,
+    borderRadius: THEME.radius.md,
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  saveRecipeBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#09090b',
+  },
+  modalBottomActions: {
+    gap: 10,
+    marginTop: 8,
+    marginBottom: 20,
+  },
+  deleteRecipeModalBtn: {
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.25)',
+    paddingVertical: 12,
+    borderRadius: THEME.radius.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  deleteRecipeModalBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: THEME.colors.danger,
+  },
+  // Undo Floating Snackbar
+  undoSnackbar: {
+    position: 'absolute',
+    bottom: 24,
+    left: 16,
+    right: 16,
+    backgroundColor: '#18181b',
+    borderRadius: THEME.radius.md,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: 'rgba(217, 119, 6, 0.4)',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    zIndex: 9999,
+  },
+  undoTextWrapper: {
+    flex: 1,
+    marginRight: 12,
+  },
+  undoSnackbarTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  undoSnackbarSub: {
+    fontSize: 10,
+    color: THEME.colors.textMuted,
+    marginTop: 1,
+  },
+  undoActionBtn: {
+    backgroundColor: THEME.colors.accent,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: THEME.radius.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  undoActionText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#09090b',
+    letterSpacing: 0.5,
   },
 });
