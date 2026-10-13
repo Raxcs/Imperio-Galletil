@@ -70,6 +70,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
   const undoTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Unified Recipe Editor Modal state (used for both Creating and Editing)
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEditorModalOpen, setIsEditorModalOpen] = useState(false);
   const [editorRecipeId, setEditorRecipeId] = useState<string | null>(null);
   const [editorTitle, setEditorTitle] = useState('');
@@ -192,6 +193,8 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
   };
 
   const handleSaveRecipeFromEditor = async () => {
+    if (isSubmitting) return;
+
     const trimmedTitle = editorTitle.trim();
     const yieldNum = parseInt(editorYieldStr, 10) || 1;
 
@@ -204,6 +207,8 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
       Alert.alert('Datos requeridos', 'El rendimiento por tanda debe ser mayor a 0.');
       return;
     }
+
+    setIsSubmitting(true);
 
     // Build ingredients list with exact portion math
     const builtIngredients: RecipeIngredient[] = editorRows
@@ -248,7 +253,15 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
       const updatedList = recipes.map((r) => (r.id === editorRecipeId ? updatedRecipe : r));
       onRecipesUpdated(updatedList);
       await setCachedRecipes(updatedList);
-      await updateRecipeInBackend(updatedRecipe);
+      setIsEditorModalOpen(false);
+
+      try {
+        await updateRecipeInBackend(updatedRecipe);
+      } catch (err) {
+        console.warn('Error updating recipe in backend', err);
+      } finally {
+        setIsSubmitting(false);
+      }
     } else {
       // Creating new recipe
       const newRecipe: Recipe = {
@@ -265,10 +278,16 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
       const updatedList = [...recipes, newRecipe];
       onRecipesUpdated(updatedList);
       await setCachedRecipes(updatedList);
-      await createRecipeInBackend(newRecipe);
-    }
+      setIsEditorModalOpen(false);
 
-    setIsEditorModalOpen(false);
+      try {
+        await createRecipeInBackend(newRecipe);
+      } catch (err) {
+        console.warn('Error creating recipe in backend', err);
+      } finally {
+        setIsSubmitting(false);
+      }
+    }
   };
 
   const handleRefresh = async () => {
@@ -864,12 +883,13 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
               </View>
 
               <TouchableOpacity
-                style={styles.saveRecipeBtn}
+                style={[styles.saveRecipeBtn, isSubmitting && { opacity: 0.6 }]}
                 onPress={handleSaveRecipeFromEditor}
+                disabled={isSubmitting}
                 activeOpacity={0.8}
               >
                 <Text style={styles.saveRecipeBtnText}>
-                  {editorRecipeId ? 'Guardar Cambios' : 'Guardar Receta'}
+                  {isSubmitting ? 'Guardando...' : (editorRecipeId ? 'Guardar Cambios' : 'Guardar Receta')}
                 </Text>
               </TouchableOpacity>
             </ScrollView>

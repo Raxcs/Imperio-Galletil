@@ -21,7 +21,10 @@ import {
   deleteProductionLogInBackend,
   restoreProductionLogInBackend,
   setCachedProductionLogs,
+  isProductionLogDeleted,
+  isLegacySeedLog,
 } from '../services/productionService';
+import { generateId } from '../lib/sync';
 
 interface ReportsScreenProps {
   logs: ProductionLog[];
@@ -41,6 +44,7 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
 
   const [isAddFormVisible, setIsAddFormVisible] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Edit log modal state
   const [editingLog, setEditingLog] = useState<ProductionLog | null>(null);
@@ -72,11 +76,13 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
   const [prodPriceStr, setProdPriceStr] = useState('1000');
   const [prodCost, setProdCost] = useState(initialCost);
 
-  // Totals
+  // Totals - only active, non-deleted, non-seed production logs
   let totalGrossVes = 0;
   let totalReinvestVes = 0;
 
-  logs.forEach((item) => {
+  const activeLogs = logs.filter((item) => !isProductionLogDeleted(item) && !isLegacySeedLog(item));
+
+  activeLogs.forEach((item) => {
     const itemGross = item.qty * item.price_ves;
     const itemCost = item.qty * item.cost_ves;
     totalGrossVes += itemGross;
@@ -106,6 +112,8 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
   };
 
   const handleAddProduction = async () => {
+    if (isSubmitting) return;
+
     const trimmed = prodName.trim();
     const qty = parseInt(prodQtyStr, 10) || 0;
     const price = parseFloat(prodPriceStr) || 0;
@@ -114,6 +122,8 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
       Alert.alert('Datos requeridos', 'Por favor ingresa un nombre, cantidad y precio valido.');
       return;
     }
+
+    setIsSubmitting(true);
 
     const matchedRecipe = recipes.find(
       (r) => r.title.toLowerCase().trim() === trimmed.toLowerCase() ||
@@ -124,19 +134,31 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
       ? Number((matchedRecipe.pack_cost_usd * rates.usd_ves).toFixed(2))
       : prodCost;
 
-    const newLogData: Omit<ProductionLog, 'id'> = {
+    const newLogId = generateId();
+    const newLog: ProductionLog = {
+      id: newLogId,
       name: trimmed,
       qty,
       price_ves: price,
       cost_ves: calculatedCost,
+      created_at: new Date().toISOString(),
     };
 
-    const saved = await addProductionLogInBackend(newLogData);
-    const updated = [saved, ...logs];
+    // Optimistic UI and cache update immediately (<1ms)
+    const updated = [newLog, ...logs.filter((l) => l.id !== newLogId)];
     onLogsUpdated(updated);
     await setCachedProductionLogs(updated);
 
+    // Close form immediately so the user cannot double-click
     setIsAddFormVisible(false);
+
+    try {
+      await addProductionLogInBackend(newLog);
+    } catch (err) {
+      console.warn('Error saving production log in backend', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleOpenEdit = (log: ProductionLog) => {
@@ -148,7 +170,7 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
   };
 
   const handleSaveEdit = async () => {
-    if (!editingLog) return;
+    if (!editingLog || isSubmitting) return;
     const trimmed = editLogName.trim();
     const qty = parseInt(editLogQtyStr, 10) || 0;
     const price = parseFloat(editLogPriceStr) || 0;
@@ -159,6 +181,8 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
       return;
     }
 
+    setIsSubmitting(true);
+
     const updatedLog: ProductionLog = {
       ...editingLog,
       name: trimmed,
@@ -167,11 +191,19 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
       cost_ves: cost,
     };
 
+    // Optimistically update UI and cache immediately
     const updated = logs.map((l) => (l.id === editingLog.id ? updatedLog : l));
     onLogsUpdated(updated);
     await setCachedProductionLogs(updated);
-    await updateProductionLogInBackend(updatedLog);
     setEditingLog(null);
+
+    try {
+      await updateProductionLogInBackend(updatedLog);
+    } catch (err) {
+      console.warn('Error updating production log in backend', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDeleteLog = (id: string) => {
@@ -363,21 +395,28 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
                 </View>
               </View>
 
-              <TouchableOpacity style={styles.submitProdBtn} onPress={handleAddProduction} activeOpacity={0.8}>
-                <Text style={styles.submitProdBtnText}>Aceptar y Recalcular</Text>
+              <TouchableOpacity
+                style={[styles.submitProdBtn, isSubmitting && { opacity: 0.6 }]}
+                onPress={handleAddProduction}
+                disabled={isSubmitting}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.submitProdBtnText}>
+                  {isSubmitting ? 'Guardando...' : 'Aceptar y Recalcular'}
+                </Text>
               </TouchableOpacity>
             </View>
           )}
 
           {/* List of items */}
           <View style={styles.logsList}>
-            {logs.length === 0 ? (
+            {activeLogs.length === 0 ? (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>Sin lotes registrados</Text>
                 <Text style={styles.emptyText}>Toca en Añadir para registrar los packs producidos hoy.</Text>
               </View>
             ) : (
-              logs.map((item) => {
+              activeLogs.map((item) => {
                 const itemGross = item.qty * item.price_ves;
                 const itemCost = item.qty * item.cost_ves;
                 const itemProfit = itemGross - itemCost;
@@ -530,11 +569,14 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
 
               <View style={styles.modalFooter}>
                 <TouchableOpacity
-                  style={styles.saveModalBtn}
+                  style={[styles.saveModalBtn, isSubmitting && { opacity: 0.6 }]}
                   onPress={handleSaveEdit}
+                  disabled={isSubmitting}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.saveModalBtnText}>Guardar Cambios</Text>
+                  <Text style={styles.saveModalBtnText}>
+                    {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>

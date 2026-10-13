@@ -142,4 +142,22 @@ describe('Sync helpers', () => {
     const ids = await store.getAll();
     expect([...ids].sort()).toEqual(['b', 'c', 'd']);
   });
+
+  it('collapses duplicate remote records when dedupeRemote is provided', () => {
+    const id1 = generateId();
+    const id2 = generateId();
+    const remote = [vicky(id1), vicky(id2)];
+
+    const { merged } = mergeWithRemote({
+      remote,
+      remoteAll: remote,
+      local: [],
+      pendingIds: new Set(),
+      contentKey: debtContentKey,
+      dedupeRemote: (items) => [items[0]],
+    });
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].id).toBe(id1);
+  });
 });

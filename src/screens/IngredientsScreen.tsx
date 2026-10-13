@@ -22,6 +22,7 @@ import {
   restoreIngredientInBackend,
   setCachedIngredients,
 } from '../services/ingredientsService';
+import { generateId } from '../lib/sync';
 
 interface IngredientsScreenProps {
   ingredients: Ingredient[];
@@ -53,6 +54,7 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
   };
   
   // New ingredient form state
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [newName, setNewName] = useState('');
   const [newPresentation, setNewPresentation] = useState('');
   const [newCat, setNewCat] = useState<'galletas' | 'brownies' | 'empaques' | 'ambos'>('galletas');
@@ -204,6 +206,8 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
   };
 
   const handleSaveNewIngredient = async () => {
+    if (isSubmitting) return;
+
     const trimmedName = newName.trim();
     const trimmedPres = newPresentation.trim() || 'Unidad';
     const finalUsd = parseFloat(newPriceUsd) || 0;
@@ -219,32 +223,44 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
       return;
     }
 
+    setIsSubmitting(true);
+
     const calculatedUsd = finalUsd > 0 ? finalUsd : rates.usd_ves > 0 ? finalVes / rates.usd_ves : 0;
     const calculatedVes = finalVes > 0 ? finalVes : finalUsd * rates.usd_ves;
 
     const cats = newCat === 'ambos' ? ['galletas', 'brownies'] : [newCat];
 
-    const newItemData: Omit<Ingredient, 'id'> = {
+    const newId = generateId();
+    const newItem: Ingredient = {
+      id: newId,
       name: trimmedName,
       presentation: trimmedPres,
       category: cats,
       price_usd: calculatedUsd,
       price_ves: calculatedVes,
       selected: false,
+      created_at: new Date().toISOString(),
     };
 
-    const itemToAdd = await createIngredientInBackend(newItemData);
-
-    const updated = [itemToAdd, ...ingredients];
+    // Optimistically update UI and cache immediately
+    const updated = [newItem, ...ingredients.filter((i) => i.id !== newId)];
     onIngredientsUpdated(updated);
     await setCachedIngredients(updated);
 
-    // Reset form
+    // Reset form & close modal immediately
     setNewName('');
     setNewPresentation('');
     setNewPriceUsd('');
     setNewPriceVes('');
     setIsAddFormVisible(false);
+
+    try {
+      await createIngredientInBackend(newItem);
+    } catch (err) {
+      console.warn('Error saving ingredient in backend', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const categoryTitles = {
@@ -601,8 +617,15 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
               </View>
             </View>
 
-            <TouchableOpacity style={styles.submitBtn} onPress={handleSaveNewIngredient} activeOpacity={0.8}>
-              <Text style={styles.submitBtnText}>Guardar Insumo</Text>
+            <TouchableOpacity
+              style={[styles.submitBtn, isSubmitting && { opacity: 0.6 }]}
+              onPress={handleSaveNewIngredient}
+              disabled={isSubmitting}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.submitBtnText}>
+                {isSubmitting ? 'Guardando...' : 'Guardar Insumo'}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>

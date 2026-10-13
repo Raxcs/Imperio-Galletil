@@ -114,6 +114,8 @@ export interface MergeOptions<T extends { id: string }> {
   combine?: (remoteItem: T, localItem: T | undefined) => T;
   /** Put local-only records before remote ones (newest first lists). */
   prependLocal?: boolean;
+  /** Custom deduplication function to collapse duplicate remote records. */
+  dedupeRemote?: (items: T[]) => T[];
 }
 
 export interface MergeResult<T> {
@@ -131,14 +133,15 @@ export interface MergeResult<T> {
  *   equivalent content, otherwise they get a fresh UUID and are uploaded exactly once.
  */
 export function mergeWithRemote<T extends { id: string }>(options: MergeOptions<T>): MergeResult<T> {
-  const { remote, remoteAll, local, pendingIds, contentKey, discardLegacy, combine, prependLocal } = options;
+  const { remote, remoteAll, local, pendingIds, contentKey, discardLegacy, combine, prependLocal, dedupeRemote } = options;
 
-  const remoteIds = new Set(remote.map((r) => r.id));
+  const effectiveRemote = dedupeRemote ? dedupeRemote(remote) : remote;
+  const remoteIds = new Set(effectiveRemote.map((r) => r.id));
   const knownContent = new Set(remoteAll.map(contentKey));
   const localById = new Map(local.map((l) => [l.id, l]));
   const toUpsert: T[] = [];
 
-  const merged: T[] = remote.map((remoteItem) => {
+  const merged: T[] = effectiveRemote.map((remoteItem) => {
     const localItem = localById.get(remoteItem.id);
     if (localItem && pendingIds.has(localItem.id)) {
       toUpsert.push(localItem);

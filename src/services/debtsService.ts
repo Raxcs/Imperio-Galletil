@@ -164,6 +164,26 @@ async function upsertDebt(debt: Debt): Promise<Debt> {
   return debt;
 }
 
+export function dedupeDebts(debts: Debt[]): Debt[] {
+  const result: Debt[] = [];
+  for (const d of debts) {
+    if (isDebtDeleted(d)) continue;
+    const isDup = result.some((existing) => {
+      const same =
+        stripDeletedPrefix(existing.name).trim().toLowerCase() === stripDeletedPrefix(d.name).trim().toLowerCase() &&
+        Number(existing.amount) === Number(d.amount) &&
+        existing.debt_date === d.debt_date &&
+        stripDeletedPrefix(existing.note || '').trim().toLowerCase() === stripDeletedPrefix(d.note || '').trim().toLowerCase();
+      if (!same) return false;
+      if (!existing.created_at || !d.created_at) return true;
+      const diffMs = Math.abs(new Date(existing.created_at).getTime() - new Date(d.created_at).getTime());
+      return diffMs < 12 * 60 * 60 * 1000;
+    });
+    if (!isDup) result.push(d);
+  }
+  return result;
+}
+
 async function syncDebts(): Promise<Debt[]> {
   const deletedIdsSet = new Set(await getDeletedDebtIds());
   const localDebts = await getCachedDebts();
@@ -185,7 +205,7 @@ async function syncDebts(): Promise<Debt[]> {
 
   // If remote fetch failed, preserve and return local cache
   if (!remoteAll) {
-    const { valid } = purgeOldDebts(activeLocalDebts);
+    const { valid } = purgeOldDebts(dedupeDebts(activeLocalDebts));
     await setCachedDebts(valid);
     return valid;
   }
@@ -197,7 +217,26 @@ async function syncDebts(): Promise<Debt[]> {
     pendingIds: await pendingDebts.getAll(),
     contentKey: debtContentKey,
     prependLocal: true,
+    dedupeRemote: dedupeDebts,
   });
+
+  // Soft-delete duplicate remote debts in the background
+  const seenDebts = new Set<string>();
+  const duplicateDebtIds: string[] = [];
+  for (const item of remoteAll) {
+    if (isDebtDeleted(item, deletedIdsSet)) continue;
+    const key = debtContentKey(item);
+    if (seenDebts.has(key)) {
+      duplicateDebtIds.push(item.id);
+    } else {
+      seenDebts.add(key);
+    }
+  }
+  if (duplicateDebtIds.length > 0) {
+    for (const dupId of duplicateDebtIds) {
+      deleteDebtInBackend(dupId).catch(() => {});
+    }
+  }
 
   // Auto-purge debts older than 30 days
   const { valid, expiredIds } = purgeOldDebts(merged);

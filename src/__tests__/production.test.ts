@@ -102,5 +102,28 @@ describe('Production Calculations and Financial Metrics', () => {
     expect(isIngredientDeleted(archivedIng as any)).toBe(true);
     expect(isIngredientDeleted({ id: 'i5', name: 'Vainilla' } as any, cachedIds)).toBe(true);
   });
+
+  it('should recognize mock legacy seed production logs', () => {
+    const { isLegacySeedLog } = require('../services/productionService');
+    const seedCookies = { id: 'uuid-1', name: 'Galletas Clasicas', qty: 40, price_ves: 1000, cost_ves: 286.93 };
+    const seedBrownies = { id: 'uuid-2', name: 'Brownie con Galleta', qty: 8, price_ves: 2500, cost_ves: 997.04 };
+    const realBatch = { id: 'uuid-3', name: 'Galletas Clasicas', qty: 30, price_ves: 1000, cost_ves: 280.22 };
+
+    expect(isLegacySeedLog(seedCookies as any)).toBe(true);
+    expect(isLegacySeedLog(seedBrownies as any)).toBe(true);
+    expect(isLegacySeedLog(realBatch as any)).toBe(false);
+  });
+
+  it('should collapse rapid duplicate production logs within 12 hours', () => {
+    const { dedupeProductionLogs } = require('../services/productionService');
+    const logA = { id: 'prod-1', name: 'Galletas Clasicas', qty: 30, price_ves: 1000, cost_ves: 280.22, created_at: '2026-10-13T14:02:22Z' };
+    const logB = { id: 'prod-2', name: 'Galletas Clasicas', qty: 30, price_ves: 1000, cost_ves: 280.22, created_at: '2026-10-13T14:02:23Z' };
+    const logC = { id: 'prod-3', name: 'Galletas Clasicas', qty: 30, price_ves: 1000, cost_ves: 280.22, created_at: '2026-10-13T14:03:55Z' };
+    const logOtherDay = { id: 'prod-4', name: 'Galletas Clasicas', qty: 30, price_ves: 1000, cost_ves: 280.22, created_at: '2026-10-20T14:00:00Z' };
+
+    const deduped = dedupeProductionLogs([logA, logB, logC, logOtherDay] as any);
+    expect(deduped).toHaveLength(2);
+    expect(deduped.map((l: any) => l.id)).toEqual(['prod-1', 'prod-4']);
+  });
 });
 

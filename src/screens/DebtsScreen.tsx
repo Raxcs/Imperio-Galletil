@@ -26,6 +26,7 @@ import {
   AUTO_PURGE_DAYS,
   setCachedDebts,
 } from '../services/debtsService';
+import { generateId } from '../lib/sync';
 
 interface DebtsScreenProps {
   debts: Debt[];
@@ -41,6 +42,7 @@ export const DebtsScreen: React.FC<DebtsScreenProps> = ({
   const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -133,6 +135,8 @@ export const DebtsScreen: React.FC<DebtsScreenProps> = ({
   };
 
   const handleSaveDebt = async () => {
+    if (isSubmitting) return;
+
     const trimmedName = name.trim();
     const numAmount = parseFloat(amountStr) || 0;
 
@@ -141,6 +145,7 @@ export const DebtsScreen: React.FC<DebtsScreenProps> = ({
       return;
     }
 
+    setIsSubmitting(true);
     const finalDateStr = dateStr || todayISO;
 
     if (editingDebt) {
@@ -151,27 +156,45 @@ export const DebtsScreen: React.FC<DebtsScreenProps> = ({
         debt_date: finalDateStr,
         note: note.trim(),
       };
-      const saved = await saveDebtInBackend(updated);
-      const newDebts = debts.map((d) => (d.id === editingDebt.id ? saved : d));
+      const newDebts = debts.map((d) => (d.id === editingDebt.id ? updated : d));
       onDebtsUpdated(newDebts);
       await setCachedDebts(newDebts);
+      setIsFormVisible(false);
+      setEditingDebt(null);
+
+      try {
+        await saveDebtInBackend(updated);
+      } catch (err) {
+        console.warn('Error saving edited debt in backend', err);
+      } finally {
+        setIsSubmitting(false);
+      }
     } else {
-      const newDebtData: Omit<Debt, 'id'> = {
+      const newDebtId = generateId();
+      const newDebt: Debt = {
+        id: newDebtId,
         name: trimmedName,
         amount: numAmount,
         debt_date: finalDateStr,
         note: note.trim(),
         paid: false,
         paid_date: null,
+        created_at: new Date().toISOString(),
       };
-      const saved = await saveDebtInBackend(newDebtData);
-      const newDebts = [saved, ...debts];
+      const newDebts = [newDebt, ...debts.filter((d) => d.id !== newDebtId)];
       onDebtsUpdated(newDebts);
       await setCachedDebts(newDebts);
+      setIsFormVisible(false);
       setActiveTab('pending');
-    }
 
-    setIsFormVisible(false);
+      try {
+        await saveDebtInBackend(newDebt);
+      } catch (err) {
+        console.warn('Error creating debt in backend', err);
+      } finally {
+        setIsSubmitting(false);
+      }
+    }
   };
 
   const handleDeleteDebtItem = (debtToDelete: Debt) => {
@@ -532,9 +555,14 @@ export const DebtsScreen: React.FC<DebtsScreenProps> = ({
             </View>
 
 
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSaveDebt} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={[styles.saveBtn, isSubmitting && { opacity: 0.6 }]}
+              onPress={handleSaveDebt}
+              disabled={isSubmitting}
+              activeOpacity={0.8}
+            >
               <Text style={styles.saveBtnText}>
-                {editingDebt ? 'Guardar Cambios' : 'Guardar Cuenta'}
+                {isSubmitting ? 'Guardando...' : (editingDebt ? 'Guardar Cambios' : 'Guardar Cuenta')}
               </Text>
             </TouchableOpacity>
           </View>

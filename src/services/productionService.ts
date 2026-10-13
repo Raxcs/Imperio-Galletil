@@ -90,6 +90,51 @@ export function isProductionLogDeleted(log: ProductionLog, deletedIds?: Set<stri
   return false;
 }
 
+/**
+ * Detects legacy mock seed records that were inserted into the database during early setup.
+ */
+export function isLegacySeedLog(log: ProductionLog): boolean {
+  if (LEGACY_SEED_IDS.has(log.id)) return true;
+  const cleanName = stripDeletedPrefix(log.name).trim().toLowerCase();
+  if (
+    (cleanName === 'galletas clasicas' && Number(log.qty) === 40 && Number(log.price_ves) === 1000 && Math.abs(Number(log.cost_ves) - 286.93) < 0.5) ||
+    (cleanName === 'brownie con galleta' && Number(log.qty) === 8 && Number(log.price_ves) === 2500 && Math.abs(Number(log.cost_ves) - 997.04) < 0.5)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Deduplicates production logs:
+ * If multiple logs have the exact same name, quantity, price, and unit cost within a 12-hour window,
+ * they are rapid double-tap or re-sync artifacts and must be collapsed to exactly one record.
+ */
+export function dedupeProductionLogs(logs: ProductionLog[]): ProductionLog[] {
+  const result: ProductionLog[] = [];
+  for (const log of logs) {
+    if (isProductionLogDeleted(log) || isLegacySeedLog(log)) continue;
+
+    const isDup = result.some((existing) => {
+      const sameContent =
+        stripDeletedPrefix(existing.name).trim().toLowerCase() === stripDeletedPrefix(log.name).trim().toLowerCase() &&
+        Number(existing.qty) === Number(log.qty) &&
+        Number(existing.price_ves) === Number(log.price_ves) &&
+        Number(existing.cost_ves) === Number(log.cost_ves);
+
+      if (!sameContent) return false;
+      if (!existing.created_at || !log.created_at) return true;
+      const diffMs = Math.abs(new Date(existing.created_at).getTime() - new Date(log.created_at).getTime());
+      return diffMs < 12 * 60 * 60 * 1000;
+    });
+
+    if (!isDup) {
+      result.push(log);
+    }
+  }
+  return result;
+}
+
 /** Content fingerprint used to recognize legacy local logs that already exist remotely. */
 export function productionLogContentKey(log: ProductionLog): string {
   return [
@@ -145,7 +190,7 @@ async function upsertProductionLog(log: ProductionLog): Promise<ProductionLog> {
 async function syncProductionLogs(): Promise<ProductionLog[]> {
   const deletedIdsSet = new Set(await getDeletedProductionLogIds());
   const localList = await getCachedProductionLogs();
-  const activeLocalList = localList.filter((l) => !isProductionLogDeleted(l, deletedIdsSet));
+  const activeLocalList = localList.filter((l) => !isProductionLogDeleted(l, deletedIdsSet) && !isLegacySeedLog(l));
 
   let remoteAll: ProductionLog[] | null = null;
   try {
@@ -162,18 +207,37 @@ async function syncProductionLogs(): Promise<ProductionLog[]> {
   }
 
   if (!remoteAll) {
-    return activeLocalList.filter((l) => !LEGACY_SEED_IDS.has(l.id));
+    return dedupeProductionLogs(activeLocalList);
   }
 
   const { merged, toUpsert } = mergeWithRemote({
-    remote: remoteAll.filter((l) => !isProductionLogDeleted(l, deletedIdsSet)),
+    remote: remoteAll.filter((l) => !isProductionLogDeleted(l, deletedIdsSet) && !isLegacySeedLog(l)),
     remoteAll,
     local: activeLocalList,
     pendingIds: await pendingLogs.getAll(),
     contentKey: productionLogContentKey,
-    discardLegacy: (l) => LEGACY_SEED_IDS.has(l.id),
+    discardLegacy: (l) => isLegacySeedLog(l),
     prependLocal: true,
+    dedupeRemote: dedupeProductionLogs,
   });
+
+  // Soft-delete any duplicate remote copies in the background so the cloud stays clean
+  const seenRemoteContent = new Set<string>();
+  const duplicateRemoteIds: string[] = [];
+  for (const item of remoteAll) {
+    if (isProductionLogDeleted(item, deletedIdsSet) || isLegacySeedLog(item)) continue;
+    const key = productionLogContentKey(item);
+    if (seenRemoteContent.has(key)) {
+      duplicateRemoteIds.push(item.id);
+    } else {
+      seenRemoteContent.add(key);
+    }
+  }
+  if (duplicateRemoteIds.length > 0) {
+    for (const dupId of duplicateRemoteIds) {
+      deleteProductionLogInBackend(dupId).catch(() => {});
+    }
+  }
 
   await pendingLogs.addMany(toUpsert.map((l) => l.id));
   await setCachedProductionLogs(merged);
