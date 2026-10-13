@@ -5,6 +5,8 @@ export interface Ingredient {
   category: string[];
   price_usd: number;
   price_ves: number;
+  base_qty?: number;
+  base_unit?: string;
   selected?: boolean;
   deleted?: boolean;
   is_deleted?: boolean;
@@ -42,6 +44,9 @@ export interface RecipeIngredient {
   price_usd: number;
   ingredient_name?: string;
   ratio?: number;
+  ing_id?: string;
+  used_qty?: number;
+  used_unit?: string;
 }
 
 export interface Recipe {

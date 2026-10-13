@@ -11,20 +11,27 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { THEME } from '../theme';
-import { ExchangeRates } from '../types';
+import { ExchangeRates, Debt, ProductionLog } from '../types';
 import { syncBcvRates } from '../services/exchangeRatesService';
+import { ChevronRight } from 'lucide-react-native';
 
 interface HomeScreenProps {
   rates: ExchangeRates;
+  debts?: Debt[];
+  logs?: ProductionLog[];
   onRatesUpdated: (newRates: ExchangeRates) => void;
   onNavigateToProduction: () => void;
+  onNavigateToDebts?: () => void;
   onSyncAll?: () => Promise<void>;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   rates,
+  debts = [],
+  logs = [],
   onRatesUpdated,
   onNavigateToProduction,
+  onNavigateToDebts,
   onSyncAll,
 }) => {
   const [baseCurrency, setBaseCurrency] = useState<'USD' | 'VES' | 'EUR'>('USD');
@@ -89,6 +96,22 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     displayVes = numAmount * rates.eur_ves;
     displayUsd = rates.usd_ves > 0 ? displayVes / rates.usd_ves : 0;
   }
+
+  // Business pulse metrics
+  const pendingDebts = debts.filter((d) => !d.paid && !d.deleted && !d.is_deleted);
+  const totalPendingVes = pendingDebts.reduce((sum, d) => sum + d.amount, 0);
+  const totalPendingUsd = rates.usd_ves > 0 ? totalPendingVes / rates.usd_ves : 0;
+
+  let totalGrossVes = 0;
+  let totalReinvestVes = 0;
+  logs.forEach((item) => {
+    if (!item.deleted && !item.is_deleted) {
+      totalGrossVes += item.qty * item.price_ves;
+      totalReinvestVes += item.qty * item.cost_ves;
+    }
+  });
+  const netProfitVes = Math.max(0, totalGrossVes - totalReinvestVes);
+  const netProfitUsd = rates.usd_ves > 0 ? netProfitVes / rates.usd_ves : 0;
 
   const handleSyncBcv = async () => {
     setIsSyncingRates(true);
@@ -280,6 +303,59 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           )}
         </View>
       </View>
+
+      {/* Pulso del Negocio */}
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <View>
+            <Text style={styles.cardEyebrow}>RESUMEN GENERAL</Text>
+            <Text style={styles.cardTitle}>Pulso del Negocio</Text>
+          </View>
+          <Text style={styles.cardTapHint}>Estado en vivo</Text>
+        </View>
+
+        <View style={styles.pulseGrid}>
+          {/* Card 1: Por Cobrar */}
+          <TouchableOpacity
+            style={styles.pulseCard}
+            onPress={onNavigateToDebts}
+            activeOpacity={0.8}
+          >
+            <View style={styles.pulseCardHeader}>
+              <View style={styles.pulseTagWarning}>
+                <Text style={styles.pulseTagWarningText}>Por Cobrar</Text>
+              </View>
+              <ChevronRight size={14} color={THEME.colors.textMuted} />
+            </View>
+            <Text style={styles.pulseValueVes}>
+              Bs. {totalPendingVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
+            <Text style={styles.pulseSubtitle}>
+              {pendingDebts.length} {pendingDebts.length === 1 ? 'cuenta pendiente' : 'cuentas pendientes'} (${totalPendingUsd.toFixed(2)})
+            </Text>
+          </TouchableOpacity>
+
+          {/* Card 2: Producción */}
+          <TouchableOpacity
+            style={styles.pulseCard}
+            onPress={onNavigateToProduction}
+            activeOpacity={0.8}
+          >
+            <View style={styles.pulseCardHeader}>
+              <View style={styles.pulseTagSuccess}>
+                <Text style={styles.pulseTagSuccessText}>Produccion</Text>
+              </View>
+              <ChevronRight size={14} color={THEME.colors.textMuted} />
+            </View>
+            <Text style={styles.pulseValueVes}>
+              Bs. {netProfitVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
+            <Text style={styles.pulseSubtitle}>
+              Ganancia libre (${netProfitUsd.toFixed(2)})
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     </ScrollView>
   );
 };
@@ -464,5 +540,58 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: THEME.colors.textPrimary,
     fontVariant: ['tabular-nums'],
+  },
+  pulseGrid: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  pulseCard: {
+    flex: 1,
+    backgroundColor: '#09090b',
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+    borderRadius: THEME.radius.md,
+    padding: 12,
+  },
+  pulseCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  pulseTagWarning: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: THEME.radius.sm,
+  },
+  pulseTagWarningText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.colors.accentLight,
+  },
+  pulseTagSuccess: {
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: THEME.radius.sm,
+  },
+  pulseTagSuccessText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.colors.success,
+  },
+  pulseValueVes: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: THEME.colors.textPrimary,
+    fontVariant: ['tabular-nums'],
+    letterSpacing: -0.2,
+  },
+  pulseSubtitle: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: THEME.colors.textMuted,
+    marginTop: 2,
   },
 });

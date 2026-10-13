@@ -54,6 +54,42 @@ export const INITIAL_RECIPES: Recipe[] = [
   },
 ];
 
+export function getIngredientBase(ingredient: Ingredient): { base_qty: number; base_unit: string } {
+  if (ingredient.base_qty && ingredient.base_unit) {
+    return { base_qty: ingredient.base_qty, base_unit: ingredient.base_unit };
+  }
+  const pres = (ingredient.presentation || '').toLowerCase();
+  if (pres.includes('1 kg') || pres.includes('1kg')) return { base_qty: 1000, base_unit: 'g' };
+  if (pres.includes('200g') || pres.includes('200 g')) return { base_qty: 200, base_unit: 'g' };
+  if (pres.includes('500g') || pres.includes('500 g')) return { base_qty: 500, base_unit: 'g' };
+  if (pres.includes('250g') || pres.includes('250 g')) return { base_qty: 250, base_unit: 'g' };
+  if (pres.includes('15')) return { base_qty: 15, base_unit: 'un' };
+  if (pres.includes('100') || pres.includes('ciento')) return { base_qty: 100, base_unit: 'un' };
+  return { base_qty: 1, base_unit: 'un' };
+}
+
+export function calcPortionCost(
+  ingredient: Ingredient | undefined,
+  usedQty: number,
+  usedUnit: string
+): number {
+  if (!ingredient || !ingredient.price_usd || usedQty <= 0) return 0;
+  const { base_qty, base_unit } = getIngredientBase(ingredient);
+
+  let qtyInBaseUnit = usedQty;
+  const bUnit = (base_unit || 'g').toLowerCase();
+  const uUnit = (usedUnit || 'g').toLowerCase();
+
+  // Unit conversions
+  if (bUnit === 'g' && uUnit === 'kg') qtyInBaseUnit *= 1000;
+  else if (bUnit === 'kg' && uUnit === 'g') qtyInBaseUnit /= 1000;
+  else if (bUnit === 'ml' && uUnit === 'l') qtyInBaseUnit *= 1000;
+  else if (bUnit === 'l' && uUnit === 'ml') qtyInBaseUnit /= 1000;
+
+  const ratio = qtyInBaseUnit / (base_qty || 1);
+  return Number((ingredient.price_usd * ratio).toFixed(2));
+}
+
 export function recalculateRecipeWithIngredients(
   recipe: Recipe,
   ingredients: Ingredient[],
@@ -62,6 +98,27 @@ export function recalculateRecipeWithIngredients(
   let batchCostUsd = 0;
 
   const updatedIngredients: RecipeIngredient[] = recipe.ingredients.map((item) => {
+    const searchTarget = (item.ingredient_name || item.name).toLowerCase().trim();
+    const matched = ingredients.find((ing) => {
+      if (item.ing_id && ing.id === item.ing_id) return true;
+      const ingName = ing.name.toLowerCase().trim();
+      return ingName === searchTarget || ingName.includes(searchTarget) || searchTarget.includes(ingName);
+    });
+
+    // 1. Calculation with specific used_qty and used_unit
+    if (matched && typeof item.used_qty === 'number' && item.used_qty > 0) {
+      const priceUsd = calcPortionCost(matched, item.used_qty, item.used_unit || 'g');
+      const priceVes = Number((priceUsd * rates.usd_ves).toFixed(2));
+      batchCostUsd += priceUsd;
+      return {
+        ...item,
+        ing_id: matched.id,
+        price_usd: priceUsd,
+        price_ves: priceVes,
+      };
+    }
+
+    // 2. Zero ratio (free / base component)
     if (item.ratio === 0) {
       return {
         ...item,
@@ -70,18 +127,14 @@ export function recalculateRecipeWithIngredients(
       };
     }
 
-    const searchTarget = (item.ingredient_name || item.name).toLowerCase().trim();
-    const matched = ingredients.find((ing) => {
-      const ingName = ing.name.toLowerCase().trim();
-      return ingName === searchTarget || ingName.includes(searchTarget) || searchTarget.includes(ingName);
-    });
-
+    // 3. Fallback to existing ratio property
     if (matched && typeof item.ratio === 'number') {
       const priceUsd = Number((matched.price_usd * item.ratio).toFixed(2));
       const priceVes = Number((priceUsd * rates.usd_ves).toFixed(2));
       batchCostUsd += priceUsd;
       return {
         ...item,
+        ing_id: matched.id,
         price_usd: priceUsd,
         price_ves: priceVes,
       };
@@ -267,6 +320,25 @@ export async function createRecipeInBackend(recipe: Recipe): Promise<void> {
     ]);
   } catch (err) {
     console.warn('Error creating/upserting recipe in Supabase', err);
+  }
+}
+
+export async function updateRecipeInBackend(recipe: Recipe): Promise<void> {
+  try {
+    await supabase.from('recipes').upsert([
+      {
+        id: recipe.id,
+        title: recipe.title,
+        subtitle: recipe.subtitle,
+        batch_yield: recipe.batch_yield,
+        batch_cost_usd: recipe.batch_cost_usd,
+        pack_cost_usd: recipe.pack_cost_usd,
+        process: recipe.process,
+        ingredients: recipe.ingredients,
+      },
+    ]);
+  } catch (err) {
+    console.warn('Error updating recipe in Supabase', err);
   }
 }
 

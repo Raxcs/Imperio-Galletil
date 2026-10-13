@@ -13,26 +13,48 @@ import {
 import { ChevronRight, ChevronLeft, Copy, Pencil, Plus, X, Undo2 } from 'lucide-react-native';
 import * as Clipboard from 'expo-clipboard';
 import { THEME } from '../theme';
-import { Recipe, ExchangeRates } from '../types';
+import { Recipe, ExchangeRates, Ingredient, RecipeIngredient } from '../types';
 import { SwipeableRow } from '../components/SwipeableRow';
 import {
   fetchRecipes,
   updateRecipeProcessInBackend,
   createRecipeInBackend,
+  updateRecipeInBackend,
   deleteRecipeInBackend,
   restoreRecipeInBackend,
   setCachedRecipes,
+  calcPortionCost,
+  getIngredientBase,
 } from '../services/recipesService';
 
 interface RecipesScreenProps {
   recipes: Recipe[];
   rates: ExchangeRates;
+  ingredients: Ingredient[];
   onRecipesUpdated: (recipes: Recipe[]) => void;
+}
+
+interface EditorIngredientRow {
+  id: string;
+  ing_id: string;
+  used_qty: number;
+  used_unit: string;
+}
+
+const AVAILABLE_UNITS = ['g', 'kg', 'un', 'ml'];
+
+function generateRecipeId(): string {
+  return 'recipe_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+}
+
+function generateRowId(): string {
+  return 'row_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
 }
 
 export const RecipesScreen: React.FC<RecipesScreenProps> = ({
   recipes,
   rates,
+  ingredients,
   onRecipesUpdated,
 }) => {
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
@@ -46,30 +68,134 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
   const [deletedRecipeToUndo, setDeletedRecipeToUndo] = useState<Recipe | null>(null);
   const undoTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // New recipe modal state
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
-  const [newSubtitle, setNewSubtitle] = useState('');
-  const [newYieldStr, setNewYieldStr] = useState('20');
-  const [newCostUsdStr, setNewCostUsdStr] = useState('5.00');
-  const [newProcess, setNewProcess] = useState('');
+  // Unified Recipe Editor Modal state (used for both Creating and Editing)
+  const [isEditorModalOpen, setIsEditorModalOpen] = useState(false);
+  const [editorRecipeId, setEditorRecipeId] = useState<string | null>(null);
+  const [editorTitle, setEditorTitle] = useState('');
+  const [editorSubtitle, setEditorSubtitle] = useState('');
+  const [editorYieldStr, setEditorYieldStr] = useState('20');
+  const [editorProcess, setEditorProcess] = useState('');
+  const [editorRows, setEditorRows] = useState<EditorIngredientRow[]>([]);
+  const [activePickerRowId, setActivePickerRowId] = useState<string | null>(null);
+
+  // Real-time calculated costs in editor (no manual price inputs)
+  const editorYield = parseInt(editorYieldStr, 10) || 1;
+  const editorBatchCostUsd = editorRows.reduce((sum, row) => {
+    const matched = ingredients.find((i) => i.id === row.ing_id);
+    return sum + calcPortionCost(matched, row.used_qty, row.used_unit);
+  }, 0);
+  const editorPackCostUsd = editorBatchCostUsd / Math.max(1, editorYield);
+  const editorBatchCostVes = editorBatchCostUsd * rates.usd_ves;
+  const editorPackCostVes = editorPackCostUsd * rates.usd_ves;
 
   const openCreateRecipeModal = () => {
-    setNewTitle('');
-    setNewSubtitle('');
-    setNewYieldStr('20');
-    setNewCostUsdStr('5.00');
-    setNewProcess('');
-    setIsCreateModalOpen(true);
+    setEditorRecipeId(null);
+    setEditorTitle('');
+    setEditorSubtitle('');
+    setEditorYieldStr('20');
+    setEditorProcess('');
+
+    // Pre-populate with first ingredients if available
+    if (ingredients.length > 0) {
+      const flour = ingredients.find((i) => i.name.toLowerCase().includes('harina')) || ingredients[0];
+      const butter = ingredients.find((i) => i.name.toLowerCase().includes('mantequilla')) || ingredients[1] || ingredients[0];
+      setEditorRows([
+        { id: 'row_1', ing_id: flour.id, used_qty: 700, used_unit: 'g' },
+        { id: 'row_2', ing_id: butter.id, used_qty: 200, used_unit: 'g' },
+      ]);
+    } else {
+      setEditorRows([]);
+    }
+
+    setIsEditorModalOpen(true);
   };
 
-  const handleSaveNewRecipe = async () => {
-    const trimmedTitle = newTitle.trim();
-    const yieldNum = parseInt(newYieldStr, 10) || 1;
-    const costUsdNum = parseFloat(newCostUsdStr) || 0;
+  const openEditRecipeModal = (recipe: Recipe) => {
+    setEditorRecipeId(recipe.id);
+    setEditorTitle(recipe.title);
+    setEditorSubtitle(recipe.subtitle);
+    setEditorYieldStr(recipe.batch_yield.toString());
+    setEditorProcess(recipe.process);
+
+    // Map existing recipe ingredients to editor rows
+    if (recipe.ingredients && recipe.ingredients.length > 0) {
+      const mappedRows: EditorIngredientRow[] = recipe.ingredients.map((item, idx) => {
+        const searchTarget = (item.ingredient_name || item.name).toLowerCase().trim();
+        const matched = ingredients.find(
+          (i) => (item.ing_id && i.id === item.ing_id) || i.name.toLowerCase().trim() === searchTarget
+        );
+        const base = matched ? getIngredientBase(matched) : { base_qty: 1000, base_unit: 'g' };
+        const usedQty = typeof item.used_qty === 'number' && item.used_qty > 0
+          ? item.used_qty
+          : (typeof item.ratio === 'number' && item.ratio > 0 ? Number((item.ratio * base.base_qty).toFixed(0)) : 100);
+
+        return {
+          id: generateRowId(),
+          ing_id: matched ? matched.id : (ingredients[0]?.id || ''),
+          used_qty: usedQty,
+          used_unit: item.used_unit || base.base_unit || 'g',
+        };
+      });
+      setEditorRows(mappedRows);
+    } else if (ingredients.length > 0) {
+      setEditorRows([{ id: 'row_0', ing_id: ingredients[0].id, used_qty: 500, used_unit: 'g' }]);
+    } else {
+      setEditorRows([]);
+    }
+
+    setIsEditorModalOpen(true);
+  };
+
+  const handleAddIngredientRow = () => {
+    if (ingredients.length === 0) {
+      Alert.alert('Sin insumos', 'Primero debes registrar insumos en la pestaña Insumos para agregarlos a la receta.');
+      return;
+    }
+    const defaultIng = ingredients[0];
+    const base = getIngredientBase(defaultIng);
+    setEditorRows((prev) => [
+      ...prev,
+      {
+        id: generateRowId(),
+        ing_id: defaultIng.id,
+        used_qty: 100,
+        used_unit: base.base_unit || 'g',
+      },
+    ]);
+  };
+
+  const handleRemoveIngredientRow = (rowId: string) => {
+    setEditorRows((prev) => prev.filter((r) => r.id !== rowId));
+  };
+
+  const handleRowQtyChange = (rowId: string, val: string) => {
+    const qty = parseFloat(val) || 0;
+    setEditorRows((prev) =>
+      prev.map((r) => (r.id === rowId ? { ...r, used_qty: qty } : r))
+    );
+  };
+
+  const handleRowUnitChange = (rowId: string, unit: string) => {
+    setEditorRows((prev) =>
+      prev.map((r) => (r.id === rowId ? { ...r, used_unit: unit } : r))
+    );
+  };
+
+  const handleSelectRowIngredient = (rowId: string, ingId: string) => {
+    const matched = ingredients.find((i) => i.id === ingId);
+    const base = matched ? getIngredientBase(matched) : { base_qty: 1000, base_unit: 'g' };
+    setEditorRows((prev) =>
+      prev.map((r) => (r.id === rowId ? { ...r, ing_id: ingId, used_unit: base.base_unit || r.used_unit } : r))
+    );
+    setActivePickerRowId(null);
+  };
+
+  const handleSaveRecipeFromEditor = async () => {
+    const trimmedTitle = editorTitle.trim();
+    const yieldNum = parseInt(editorYieldStr, 10) || 1;
 
     if (!trimmedTitle) {
-      Alert.alert('Datos requeridos', 'Por favor ingresa un titulo para la receta.');
+      Alert.alert('Datos requeridos', 'Por favor ingresa un título para la receta.');
       return;
     }
 
@@ -78,23 +204,70 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
       return;
     }
 
-    const packCost = Number((costUsdNum / yieldNum).toFixed(2));
-    const newRecipe: Recipe = {
-      id: 'recipe_' + Date.now(),
-      title: trimmedTitle,
-      subtitle: newSubtitle.trim() || 'Receta de la casa',
-      batch_yield: yieldNum,
-      batch_cost_usd: costUsdNum,
-      pack_cost_usd: packCost,
-      process: newProcess.trim() || 'Pasos de preparacion pendientes por definir.',
-      ingredients: [],
-    };
+    // Build ingredients list with exact portion math
+    const builtIngredients: RecipeIngredient[] = editorRows
+      .filter((r) => r.ing_id && r.used_qty > 0)
+      .map((r) => {
+        const matched = ingredients.find((i) => i.id === r.ing_id);
+        const costUsd = calcPortionCost(matched, r.used_qty, r.used_unit);
+        const costVes = Number((costUsd * rates.usd_ves).toFixed(2));
+        const base = matched ? getIngredientBase(matched) : { base_qty: 1, base_unit: 'un' };
+        const ratio = r.used_qty / (base.base_qty || 1);
 
-    const updatedList = [...recipes, newRecipe];
-    onRecipesUpdated(updatedList);
-    await setCachedRecipes(updatedList);
-    await createRecipeInBackend(newRecipe);
-    setIsCreateModalOpen(false);
+        return {
+          name: matched?.name || 'Insumo',
+          amount: `${r.used_qty} ${r.used_unit}`,
+          price_usd: costUsd,
+          price_ves: costVes,
+          ingredient_name: matched?.name,
+          ing_id: r.ing_id,
+          used_qty: r.used_qty,
+          used_unit: r.used_unit,
+          ratio: ratio,
+        };
+      });
+
+    const finalBatchUsd = Number(editorBatchCostUsd.toFixed(2));
+    const finalPackUsd = Number(editorPackCostUsd.toFixed(2));
+
+    if (editorRecipeId) {
+      // Editing existing recipe
+      const existing = recipes.find((r) => r.id === editorRecipeId);
+      const updatedRecipe: Recipe = {
+        id: editorRecipeId,
+        title: trimmedTitle,
+        subtitle: editorSubtitle.trim() || 'Receta de la casa',
+        batch_yield: yieldNum,
+        batch_cost_usd: finalBatchUsd,
+        pack_cost_usd: finalPackUsd,
+        process: editorProcess.trim() || existing?.process || 'Pasos de preparación pendientes.',
+        ingredients: builtIngredients,
+      };
+
+      const updatedList = recipes.map((r) => (r.id === editorRecipeId ? updatedRecipe : r));
+      onRecipesUpdated(updatedList);
+      await setCachedRecipes(updatedList);
+      await updateRecipeInBackend(updatedRecipe);
+    } else {
+      // Creating new recipe
+      const newRecipe: Recipe = {
+        id: generateRecipeId(),
+        title: trimmedTitle,
+        subtitle: editorSubtitle.trim() || 'Receta de la casa',
+        batch_yield: yieldNum,
+        batch_cost_usd: finalBatchUsd,
+        pack_cost_usd: finalPackUsd,
+        process: editorProcess.trim() || 'Pasos de preparación pendientes por definir.',
+        ingredients: builtIngredients,
+      };
+
+      const updatedList = [...recipes, newRecipe];
+      onRecipesUpdated(updatedList);
+      await setCachedRecipes(updatedList);
+      await createRecipeInBackend(newRecipe);
+    }
+
+    setIsEditorModalOpen(false);
   };
 
   const handleRefresh = async () => {
@@ -136,7 +309,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
     if (!selectedRecipe) return;
     const trimmed = processEditText.trim();
     if (!trimmed) {
-      Alert.alert('Proceso vacio', 'Por favor ingresa los pasos de preparacion.');
+      Alert.alert('Proceso vacío', 'Por favor ingresa los pasos de preparación.');
       return;
     }
 
@@ -215,7 +388,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
         {/* Header Info */}
         <View style={styles.headerInfo}>
           <Text style={styles.headerSubtitle}>RECETARIO Y ESCANDALLO</Text>
-          <Text style={styles.headerDesc}>Toca cualquier receta para ver detalles e ingredientes</Text>
+          <Text style={styles.headerDesc}>Toca cualquier receta para ver detalles, insumos y pasos</Text>
         </View>
 
         {/* Recipe Cards List */}
@@ -252,7 +425,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
                         Bs. {batchCostVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Text>
                       <Text style={styles.costSubUsd}>
-                        ${recipe.batch_cost_usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                        ${recipe.batch_cost_usd.toFixed(2)} USD
                       </Text>
                     </View>
 
@@ -262,7 +435,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
                         Bs. {packCostVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Text>
                       <Text style={styles.costSubUsd}>
-                        ${recipe.pack_cost_usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                        ${recipe.pack_cost_usd.toFixed(2)} USD
                       </Text>
                     </View>
                   </View>
@@ -273,28 +446,34 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
         </View>
       </ScrollView>
 
-      {/* Floating Action Button */}
+      {/* Floating Action Button (New Recipe) */}
       <TouchableOpacity
         style={styles.fabBtn}
         onPress={openCreateRecipeModal}
         activeOpacity={0.85}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
-        <Plus size={24} color="#09090b" strokeWidth={2.6} />
+        <Plus size={24} color="#09090b" strokeWidth={2.5} />
       </TouchableOpacity>
 
-      {/* Recipe Details Full Modal */}
+      {/* Detail Recipe Modal */}
       {selectedRecipe && (
         <Modal
-          visible={!!selectedRecipe}
+          visible={!!selectedRecipeId}
           animationType="slide"
+          presentationStyle="pageSheet"
           onRequestClose={closeRecipeModal}
         >
           <View style={styles.modalContainer}>
             {/* Modal Navigation Header */}
             <View style={styles.modalNavHeader}>
-              <TouchableOpacity style={styles.backButton} onPress={closeRecipeModal} activeOpacity={0.7}>
-                <ChevronLeft size={20} color={THEME.colors.accent} strokeWidth={2.4} />
-                <Text style={styles.backButtonText}>Volver a Recetas</Text>
+              <TouchableOpacity
+                style={styles.backButton}
+                onPress={closeRecipeModal}
+                activeOpacity={0.7}
+              >
+                <ChevronLeft size={18} color={THEME.colors.accent} strokeWidth={2.4} />
+                <Text style={styles.backButtonText}>Recetario</Text>
               </TouchableOpacity>
             </View>
 
@@ -309,7 +488,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
                 <Text style={styles.modalRecipeSubtitle}>{selectedRecipe.subtitle}</Text>
               </View>
 
-              {/* Metrics Grid */}
+              {/* General Costs Breakdown */}
               <View style={styles.metricsRow}>
                 {/* Costo por Tanda */}
                 <View style={styles.metricCard}>
@@ -319,7 +498,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
                       Bs. {(selectedRecipe.batch_cost_usd * rates.usd_ves).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                     <Text style={styles.metricValueUsd}>
-                      ${selectedRecipe.batch_cost_usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                      ${selectedRecipe.batch_cost_usd.toFixed(2)} USD
                     </Text>
                   </View>
                   <View style={styles.badgeWrapper}>
@@ -339,7 +518,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
                       Bs. {(selectedRecipe.pack_cost_usd * rates.usd_ves).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
                     <Text style={styles.metricValueUsd}>
-                      ${selectedRecipe.pack_cost_usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                      ${selectedRecipe.pack_cost_usd.toFixed(2)} USD
                     </Text>
                   </View>
                   <View style={styles.badgeWrapper}>
@@ -350,21 +529,41 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
 
               {/* Ingredients Breakdown */}
               <View style={styles.sectionCard}>
-                <Text style={styles.sectionTitle}>Ingredientes de la Tanda</Text>
+                <View style={styles.processHeader}>
+                  <View>
+                    <Text style={styles.sectionTitle}>Insumos y Medidas</Text>
+                    <Text style={styles.sectionSubtitle}>Costeo porcional automático</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.actionBtnSmall}
+                    onPress={() => openEditRecipeModal(selectedRecipe)}
+                    activeOpacity={0.7}
+                  >
+                    <Pencil size={13} color={THEME.colors.accent} strokeWidth={2} />
+                    <Text style={styles.actionBtnSmallText}>Editar Receta</Text>
+                  </TouchableOpacity>
+                </View>
+
                 <View style={styles.ingredientsList}>
                   {selectedRecipe.ingredients.map((ing, idx) => {
                     const priceVesFormatted = ing.price_ves > 0
                       ? `Bs. ${ing.price_ves.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                       : 'Incluida';
                     const priceUsdFormatted = ing.price_usd > 0
-                      ? `$${ing.price_usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`
+                      ? `$${ing.price_usd.toFixed(2)} USD`
                       : '';
+
+                    // Find catalog presentation info
+                    const matchedCatalog = ingredients.find((i) => i.id === ing.ing_id || i.name.toLowerCase() === ing.name.toLowerCase());
+                    const presInfo = matchedCatalog ? ` · Base: ${matchedCatalog.presentation}` : '';
 
                     return (
                       <View key={idx} style={styles.ingredientRow}>
                         <View style={styles.ingredientInfo}>
                           <Text style={styles.ingredientName}>{ing.name}</Text>
-                          <Text style={styles.ingredientAmount}>{ing.amount}</Text>
+                          <Text style={styles.ingredientAmount}>
+                            {ing.amount} <Text style={{ color: THEME.colors.textMuted }}>{presInfo}</Text>
+                          </Text>
                         </View>
                         <View style={styles.ingredientPrices}>
                           <Text style={styles.ingPriceVes}>{priceVesFormatted}</Text>
@@ -380,7 +579,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
                 <View style={styles.ingredientsTotalRow}>
                   <Text style={styles.totalLabel}>Total Insumos Tanda</Text>
                   <Text style={styles.totalValue}>
-                    Bs. {(selectedRecipe.batch_cost_usd * rates.usd_ves).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${selectedRecipe.batch_cost_usd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD)
+                    Bs. {(selectedRecipe.batch_cost_usd * rates.usd_ves).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (${selectedRecipe.batch_cost_usd.toFixed(2)} USD)
                   </Text>
                 </View>
               </View>
@@ -389,8 +588,8 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
               <View style={styles.sectionCard}>
                 <View style={styles.processHeader}>
                   <View>
-                    <Text style={styles.sectionTitle}>Proceso de Elaboracion</Text>
-                    <Text style={styles.sectionSubtitle}>Pasos de preparacion de la tanda</Text>
+                    <Text style={styles.sectionTitle}>Proceso de Elaboración</Text>
+                    <Text style={styles.sectionSubtitle}>Pasos de preparación de la tanda</Text>
                   </View>
                   <View style={styles.processActionButtons}>
                     <TouchableOpacity
@@ -411,7 +610,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
                     >
                       <Pencil size={13} color={THEME.colors.accent} strokeWidth={2} />
                       <Text style={styles.actionBtnSmallText}>
-                        {isEditingProcess ? 'Viendo' : 'Editar'}
+                        {isEditingProcess ? 'Viendo' : 'Editar Pasos'}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -430,7 +629,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
                       multiline
                       numberOfLines={8}
                       textAlignVertical="top"
-                      placeholder="Escribe o pega aqui los pasos de preparacion..."
+                      placeholder="Escribe o pega aquí los pasos de preparación..."
                       placeholderTextColor={THEME.colors.textMuted}
                     />
                     <View style={styles.processEditActions}>
@@ -470,88 +669,249 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
         </Modal>
       )}
 
-      {/* Create Recipe Modal */}
+      {/* Unified Recipe Editor Modal (New / Edit) */}
       <Modal
-        visible={isCreateModalOpen}
+        visible={isEditorModalOpen}
         transparent
         animationType="fade"
-        onRequestClose={() => setIsCreateModalOpen(false)}
+        onRequestClose={() => setIsEditorModalOpen(false)}
       >
         <View style={styles.createModalOverlay}>
           <View style={styles.createModalBox}>
             <View style={styles.createModalHeader}>
-              <Text style={styles.createModalTitle}>Nueva Receta</Text>
-              <TouchableOpacity onPress={() => setIsCreateModalOpen(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={styles.createModalTitle}>
+                {editorRecipeId ? `Editar Receta` : `Nueva Receta`}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setIsEditorModalOpen(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
                 <X size={18} color={THEME.colors.textMuted} />
               </TouchableOpacity>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
               <View style={styles.fieldWrapper}>
-                <Text style={styles.label}>Titulo de la receta</Text>
+                <Text style={styles.label}>Título de la receta</Text>
                 <TextInput
                   style={styles.input}
-                  value={newTitle}
-                  onChangeText={setNewTitle}
+                  value={editorTitle}
+                  onChangeText={setEditorTitle}
                   placeholder="Ej: Galletas Red Velvet"
                   placeholderTextColor={THEME.colors.textMuted}
                 />
               </View>
 
               <View style={styles.fieldWrapper}>
-                <Text style={styles.label}>Descripcion breve</Text>
+                <Text style={styles.label}>Descripción breve</Text>
                 <TextInput
                   style={styles.input}
-                  value={newSubtitle}
-                  onChangeText={setNewSubtitle}
-                  placeholder="Ej: Receta de la casa horneada"
+                  value={editorSubtitle}
+                  onChangeText={setEditorSubtitle}
+                  placeholder="Ej: Receta artesanal de la casa"
                   placeholderTextColor={THEME.colors.textMuted}
                 />
               </View>
 
-              <View style={styles.rowFields}>
-                <View style={[styles.fieldWrapper, { flex: 1 }]}>
-                  <Text style={styles.label}>Rendimiento (packs)</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={newYieldStr}
-                    onChangeText={setNewYieldStr}
-                    keyboardType="numeric"
-                    placeholder="20"
-                    placeholderTextColor={THEME.colors.textMuted}
-                  />
+              <View style={styles.fieldWrapper}>
+                <Text style={styles.label}>Rendimiento (packs por tanda)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={editorYieldStr}
+                  onChangeText={setEditorYieldStr}
+                  keyboardType="numeric"
+                  placeholder="20"
+                  placeholderTextColor={THEME.colors.textMuted}
+                />
+              </View>
+
+              {/* Real-time Calculated Cost Banner (No manual inputs for price) */}
+              <View style={styles.editorCostBanner}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.costBannerLabel}>COSTO TANDA (AUTOMÁTICO)</Text>
+                  <Text style={styles.costBannerValMain}>${editorBatchCostUsd.toFixed(2)} USD</Text>
+                  <Text style={styles.costBannerValSub}>
+                    Bs. {editorBatchCostVes.toLocaleString('es-VE', { maximumFractionDigits: 0 })}
+                  </Text>
+                </View>
+                <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                  <Text style={styles.costBannerLabel}>COSTO POR PACK</Text>
+                  <Text style={[styles.costBannerValMain, { color: THEME.colors.accent }]}>
+                    ${editorPackCostUsd.toFixed(2)} USD
+                  </Text>
+                  <Text style={styles.costBannerValSub}>
+                    Bs. {editorPackCostVes.toLocaleString('es-VE', { maximumFractionDigits: 0 })}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Insumos Section */}
+              <View style={styles.fieldWrapper}>
+                <View style={styles.editorIngredientsHeader}>
+                  <View>
+                    <Text style={styles.label}>Insumos y Cantidad Usada</Text>
+                    <Text style={styles.editorIngredientsSub}>
+                      El costo se calcula con el precio que tienes en Insumos
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.addIngRowBtn}
+                    onPress={handleAddIngredientRow}
+                    activeOpacity={0.8}
+                  >
+                    <Plus size={12} color="#09090b" strokeWidth={2.6} />
+                    <Text style={styles.addIngRowBtnText}>Añadir</Text>
+                  </TouchableOpacity>
                 </View>
 
-                <View style={[styles.fieldWrapper, { flex: 1 }]}>
-                  <Text style={styles.label}>Costo tanda (USD)</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={newCostUsdStr}
-                    onChangeText={setNewCostUsdStr}
-                    keyboardType="numeric"
-                    placeholder="5.00"
-                    placeholderTextColor={THEME.colors.textMuted}
-                  />
+                {/* Rows list */}
+                {editorRows.length === 0 ? (
+                  <View style={styles.emptyRowsBox}>
+                    <Text style={styles.emptyRowsText}>
+                      Toca en &quot;+ Añadir&quot; para seleccionar insumos del catálogo
+                    </Text>
+                  </View>
+                ) : (
+                  editorRows.map((row) => {
+                    const matched = ingredients.find((i) => i.id === row.ing_id);
+                    const portionCost = calcPortionCost(matched, row.used_qty, row.used_unit);
+
+                    return (
+                      <View key={row.id} style={styles.ingPortionRow}>
+                        {/* Ingredient Picker Button */}
+                        <TouchableOpacity
+                          style={styles.ingSelectBtn}
+                          onPress={() => setActivePickerRowId(row.id)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={styles.ingSelectBtnTitle} numberOfLines={1}>
+                            {matched ? matched.name : 'Seleccionar insumo...'}
+                          </Text>
+                          <Text style={styles.ingSelectBtnSub} numberOfLines={1}>
+                            {matched ? `$${matched.price_usd.toFixed(2)} / ${matched.presentation}` : 'Toca para elegir'}
+                          </Text>
+                        </TouchableOpacity>
+
+                        {/* Quantity input */}
+                        <TextInput
+                          style={styles.ingQtyInput}
+                          value={row.used_qty > 0 ? String(row.used_qty) : ''}
+                          onChangeText={(val) => handleRowQtyChange(row.id, val)}
+                          keyboardType="numeric"
+                          placeholder="100"
+                          placeholderTextColor={THEME.colors.textMuted}
+                        />
+
+                        {/* Unit selector pills */}
+                        <View style={styles.unitPillsRow}>
+                          {AVAILABLE_UNITS.map((u) => {
+                            const isSelected = row.used_unit === u;
+                            return (
+                              <TouchableOpacity
+                                key={u}
+                                style={[styles.unitPill, isSelected && styles.unitPillActive]}
+                                onPress={() => handleRowUnitChange(row.id, u)}
+                                activeOpacity={0.7}
+                              >
+                                <Text style={[styles.unitPillText, isSelected && styles.unitPillTextActive]}>
+                                  {u}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+
+                        {/* Calculated cost badge */}
+                        <View style={styles.portionCostBadge}>
+                          <Text style={styles.portionCostBadgeText}>${portionCost.toFixed(2)}</Text>
+                        </View>
+
+                        {/* Delete row button */}
+                        <TouchableOpacity
+                          style={styles.delRowBtn}
+                          onPress={() => handleRemoveIngredientRow(row.id)}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          activeOpacity={0.7}
+                        >
+                          <X size={14} color={THEME.colors.textMuted} />
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })
+                )}
+
+                {/* Educational formula hint */}
+                <View style={styles.formulaHintBox}>
+                  <Text style={styles.formulaHintText}>
+                    💡 Ejemplo: Si 1kg de harina cuesta $1.06 en Insumos, al usar 700g aquí se calcula automáticamente: $0.74 USD.
+                  </Text>
                 </View>
               </View>
 
               <View style={styles.fieldWrapper}>
-                <Text style={styles.label}>Pasos de preparacion</Text>
+                <Text style={styles.label}>Pasos de preparación</Text>
                 <TextInput
                   style={[styles.input, styles.textArea]}
-                  value={newProcess}
-                  onChangeText={setNewProcess}
+                  value={editorProcess}
+                  onChangeText={setEditorProcess}
                   multiline
                   numberOfLines={4}
                   textAlignVertical="top"
-                  placeholder="Escribe aqui las instrucciones o pasos clave..."
+                  placeholder="Escribe aquí las instrucciones o pasos clave..."
                   placeholderTextColor={THEME.colors.textMuted}
                 />
               </View>
 
-              <TouchableOpacity style={styles.saveRecipeBtn} onPress={handleSaveNewRecipe} activeOpacity={0.8}>
-                <Text style={styles.saveRecipeBtnText}>Guardar Receta</Text>
+              <TouchableOpacity
+                style={styles.saveRecipeBtn}
+                onPress={handleSaveRecipeFromEditor}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.saveRecipeBtnText}>
+                  {editorRecipeId ? 'Guardar Cambios' : 'Guardar Receta'}
+                </Text>
               </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Ingredient Picker Sheet for Editor Rows */}
+      <Modal
+        visible={!!activePickerRowId}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setActivePickerRowId(null)}
+      >
+        <View style={styles.createModalOverlay}>
+          <View style={[styles.createModalBox, { maxHeight: '80%' }]}>
+            <View style={styles.createModalHeader}>
+              <Text style={styles.createModalTitle}>Seleccionar Insumo</Text>
+              <TouchableOpacity
+                onPress={() => setActivePickerRowId(null)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <X size={18} color={THEME.colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {ingredients.map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.pickerItemRow}
+                  onPress={() => activePickerRowId && handleSelectRowIngredient(activePickerRowId, item.id)}
+                  activeOpacity={0.8}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.pickerItemName}>{item.name}</Text>
+                    <Text style={styles.pickerItemSub}>
+                      {item.presentation} · Bs. {item.price_ves.toLocaleString('es-VE', { maximumFractionDigits: 0 })}
+                    </Text>
+                  </View>
+                  <Text style={styles.pickerItemPrice}>${item.price_usd.toFixed(2)} USD</Text>
+                </TouchableOpacity>
+              ))}
             </ScrollView>
           </View>
         </View>
@@ -564,7 +924,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
             <Text style={styles.undoSnackbarTitle} numberOfLines={1}>
               {`Receta "${deletedRecipeToUndo.title}" eliminada`}
             </Text>
-            <Text style={styles.undoSnackbarSub}>Se borrara permanentemente en 5s</Text>
+            <Text style={styles.undoSnackbarSub}>Se borrará permanentemente en 5s</Text>
           </View>
           <TouchableOpacity
             style={styles.undoActionBtn}
@@ -814,21 +1174,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 7,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: THEME.colors.cardBorder,
   },
   ingredientInfo: {
     flex: 1,
+    paddingRight: 8,
   },
   ingredientName: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: THEME.colors.textPrimary,
   },
   ingredientAmount: {
     fontSize: 11,
-    color: THEME.colors.textSecondary,
+    fontWeight: '600',
+    color: THEME.colors.accent,
     marginTop: 1,
   },
   ingredientPrices: {
@@ -965,6 +1327,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: THEME.colors.textSecondary,
   },
+  // Modal Editor
   createModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.85)',
@@ -974,11 +1337,11 @@ const styles = StyleSheet.create({
   },
   createModalBox: {
     width: '100%',
-    maxWidth: 400,
-    maxHeight: '90%',
+    maxWidth: 420,
+    maxHeight: '92%',
     backgroundColor: THEME.colors.card,
     borderRadius: THEME.radius.xl,
-    padding: 20,
+    padding: 18,
     borderWidth: 1,
     borderColor: THEME.colors.cardBorderHighlight,
   },
@@ -986,10 +1349,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   createModalTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '800',
     color: THEME.colors.textPrimary,
   },
@@ -998,9 +1361,9 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '700',
     color: THEME.colors.textSecondary,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   input: {
     backgroundColor: '#09090b',
@@ -1014,11 +1377,162 @@ const styles = StyleSheet.create({
     color: THEME.colors.textPrimary,
   },
   textArea: {
-    minHeight: 80,
+    minHeight: 70,
   },
-  rowFields: {
+  editorCostBanner: {
+    backgroundColor: '#09090b',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+    borderRadius: THEME.radius.md,
+    padding: 12,
     flexDirection: 'row',
-    gap: 10,
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  costBannerLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: THEME.colors.textMuted,
+    marginBottom: 2,
+    letterSpacing: 0.5,
+  },
+  costBannerValMain: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#ffffff',
+    fontVariant: ['tabular-nums'],
+  },
+  costBannerValSub: {
+    fontSize: 10,
+    color: THEME.colors.textMuted,
+    marginTop: 1,
+    fontVariant: ['tabular-nums'],
+  },
+  editorIngredientsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  editorIngredientsSub: {
+    fontSize: 10,
+    color: THEME.colors.textMuted,
+    marginTop: 1,
+  },
+  addIngRowBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: THEME.colors.accent,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: THEME.radius.sm,
+  },
+  addIngRowBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#09090b',
+  },
+  emptyRowsBox: {
+    padding: 14,
+    borderRadius: THEME.radius.md,
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+    alignItems: 'center',
+    backgroundColor: '#09090b',
+  },
+  emptyRowsText: {
+    fontSize: 11,
+    color: THEME.colors.textMuted,
+  },
+  ingPortionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#09090b',
+    borderRadius: THEME.radius.md,
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+    padding: 8,
+    marginBottom: 6,
+    gap: 6,
+  },
+  ingSelectBtn: {
+    flex: 1.4,
+    paddingRight: 4,
+  },
+  ingSelectBtnTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: THEME.colors.textPrimary,
+  },
+  ingSelectBtnSub: {
+    fontSize: 10,
+    color: THEME.colors.accent,
+    marginTop: 1,
+  },
+  ingQtyInput: {
+    width: 52,
+    backgroundColor: '#18181b',
+    borderRadius: THEME.radius.sm,
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+    paddingHorizontal: 4,
+    paddingVertical: 5,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#ffffff',
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+  },
+  unitPillsRow: {
+    flexDirection: 'row',
+    backgroundColor: '#18181b',
+    borderRadius: THEME.radius.sm,
+    padding: 2,
+    gap: 2,
+  },
+  unitPill: {
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  unitPillActive: {
+    backgroundColor: THEME.colors.accent,
+  },
+  unitPillText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: THEME.colors.textMuted,
+  },
+  unitPillTextActive: {
+    color: '#09090b',
+    fontWeight: '800',
+  },
+  portionCostBadge: {
+    width: 48,
+    alignItems: 'flex-end',
+  },
+  portionCostBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: THEME.colors.accentLight,
+    fontVariant: ['tabular-nums'],
+  },
+  delRowBtn: {
+    padding: 4,
+  },
+  formulaHintBox: {
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.2)',
+    padding: 8,
+    borderRadius: THEME.radius.sm,
+    marginTop: 4,
+  },
+  formulaHintText: {
+    fontSize: 10,
+    color: THEME.colors.accentLight,
+    lineHeight: 14,
   },
   saveRecipeBtn: {
     backgroundColor: THEME.colors.accent,
@@ -1033,26 +1547,28 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#09090b',
   },
-  modalBottomActions: {
-    gap: 10,
-    marginTop: 8,
-    marginBottom: 20,
-  },
-  deleteRecipeModalBtn: {
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.25)',
-    paddingVertical: 12,
-    borderRadius: THEME.radius.md,
+  pickerItemRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.colors.cardBorder,
   },
-  deleteRecipeModalBtnText: {
-    fontSize: 12,
+  pickerItemName: {
+    fontSize: 13,
     fontWeight: '700',
-    color: THEME.colors.danger,
+    color: THEME.colors.textPrimary,
+  },
+  pickerItemSub: {
+    fontSize: 11,
+    color: THEME.colors.textMuted,
+    marginTop: 2,
+  },
+  pickerItemPrice: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: THEME.colors.accent,
   },
   // Undo Floating Snackbar
   undoSnackbar: {

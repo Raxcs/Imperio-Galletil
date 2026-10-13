@@ -289,8 +289,11 @@ function MainAppContent() {
         {activeTab === 'home' && (
           <HomeScreen
             rates={rates}
+            debts={debts}
+            logs={logs}
             onRatesUpdated={setRates}
             onNavigateToProduction={() => setActiveTab('reports')}
+            onNavigateToDebts={() => setActiveTab('debts')}
             onSyncAll={handleSyncAllCloudData}
           />
         )}
@@ -307,6 +310,7 @@ function MainAppContent() {
           <RecipesScreen
             recipes={computedRecipes}
             rates={rates}
+            ingredients={ingredients}
             onRecipesUpdated={setRecipes}
           />
         )}

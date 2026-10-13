@@ -1,4 +1,9 @@
-import { INITIAL_RECIPES, computeRecipesWithIngredients } from '../services/recipesService';
+import {
+  INITIAL_RECIPES,
+  computeRecipesWithIngredients,
+  calcPortionCost,
+  isRecipeDeleted,
+} from '../services/recipesService';
 
 describe('Recipes Costing and Ingredients Logic', () => {
   it('should verify cookies recipe yield and unit cost match ingredient sums', () => {
@@ -62,8 +67,46 @@ describe('Recipes Costing and Ingredients Logic', () => {
     expect(updatedCookies.pack_cost_usd).toBeCloseTo(updatedCookies.batch_cost_usd / 23, 2);
   });
 
+  it('should correctly calculate portion cost based on proportion and units', () => {
+    const harina = {
+      id: 'ing_1',
+      name: 'Harina de trigo',
+      presentation: 'Paquete 1 kg',
+      base_qty: 1000,
+      base_unit: 'g',
+      category: ['galletas'],
+      price_usd: 1.06,
+      price_ves: 928.24,
+    };
+
+    // 700g of 1000g @ $1.06 => 0.74 USD
+    const cost700g = calcPortionCost(harina, 700, 'g');
+    expect(cost700g).toBe(0.74);
+
+    // 1000g of 1000g @ $1.06 => 1.06 USD
+    const cost1000g = calcPortionCost(harina, 1000, 'g');
+    expect(cost1000g).toBe(1.06);
+
+    // 0.5 kg of 1000g @ $1.06 => 0.53 USD
+    const cost05kg = calcPortionCost(harina, 0.5, 'kg');
+    expect(cost05kg).toBe(0.53);
+
+    // Eggs: 2 units of 15 units @ $3.54 => 0.47 USD
+    const huevos = {
+      id: 'ing_3',
+      name: 'Huevos frescos',
+      presentation: '15 unidades',
+      base_qty: 15,
+      base_unit: 'un',
+      category: ['galletas'],
+      price_usd: 3.54,
+      price_ves: 3100,
+    };
+    const cost2Eggs = calcPortionCost(huevos, 2, 'un');
+    expect(cost2Eggs).toBe(0.47);
+  });
+
   it('should correctly identify logically deleted recipes without permanent deletion', () => {
-    const { isRecipeDeleted } = require('../services/recipesService');
     const normalRecipe = { id: 'r1', title: 'Galletas', subtitle: 'Normal' };
     const markedRecipe = { id: 'r2', title: 'Galletas', subtitle: 'Normal', deleted: true };
     const prefixRecipe = { id: 'r3', title: 'Galletas', subtitle: '__DELETED__Receta de la casa' };

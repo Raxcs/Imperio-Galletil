@@ -257,9 +257,9 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
 
         {/* Two Secondary Metric Cards */}
         <View style={styles.secondaryCardsGrid}>
-          {/* Total Cobrado */}
+          {/* Ventas Totales */}
           <View style={styles.secCard}>
-            <Text style={styles.secCardLabel}>TOTAL COBRADO</Text>
+            <Text style={styles.secCardLabel}>VENTAS TOTALES</Text>
             <Text style={styles.secCardVes}>
               Bs. {totalGrossVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Text>
