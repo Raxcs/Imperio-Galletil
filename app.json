@@ -6,6 +6,16 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#09090b"
+    },
+    "androidNavigationBar": {
+      "visible": "always",
+      "backgroundColor": "#09090b",
+      "barStyle": "light-content"
+    },
     "ios": {
       "supportsTablet": true
     },
@@ -15,6 +25,11 @@
       "permissions": [
         "REQUEST_INSTALL_PACKAGES"
       ],
+      "splash": {
+        "backgroundColor": "#09090b",
+        "image": "./assets/splash-icon.png",
+        "resizeMode": "contain"
+      },
       "adaptiveIcon": {
         "backgroundColor": "#09090b",
         "foregroundImage": "./assets/android-icon-foreground.png",
