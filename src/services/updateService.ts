@@ -161,10 +161,28 @@ export async function openAppUpdateDownload(downloadUrl: string): Promise<void> 
   }
 }
 
+let activeDownloadResumable: any = null;
+
+export async function cancelActiveDownload(): Promise<void> {
+  if (activeDownloadResumable) {
+    try {
+      if (typeof activeDownloadResumable.cancelAsync === 'function') {
+        await activeDownloadResumable.cancelAsync();
+      } else if (typeof activeDownloadResumable.pauseAsync === 'function') {
+        await activeDownloadResumable.pauseAsync();
+      }
+    } catch (e) {
+      console.warn('Error cancelling download task', e);
+    } finally {
+      activeDownloadResumable = null;
+    }
+  }
+}
+
 export async function downloadAndInstallApk(
   downloadUrl: string,
-  onProgress?: (ratio: number) => void
-): Promise<{ success: boolean; error?: string }> {
+  onProgress?: (ratio: number, totalBytesWritten?: number, totalBytesExpected?: number) => void
+): Promise<{ success: boolean; cancelled?: boolean; error?: string }> {
   try {
     if (Platform.OS !== 'android') {
       await openAppUpdateDownload(downloadUrl);
@@ -186,12 +204,19 @@ export async function downloadAndInstallApk(
       (downloadProgress) => {
         if (downloadProgress.totalBytesExpectedToWrite > 0 && onProgress) {
           const ratio = downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite;
-          onProgress(Math.min(1, Math.max(0, ratio)));
+          onProgress(
+            Math.min(1, Math.max(0, ratio)),
+            downloadProgress.totalBytesWritten,
+            downloadProgress.totalBytesExpectedToWrite
+          );
         }
       }
     );
 
+    activeDownloadResumable = downloadResumable;
     const result = await downloadResumable.downloadAsync();
+    activeDownloadResumable = null;
+
     if (!result || !result.uri) {
       throw new Error('Descarga del paquete incompleta');
     }
@@ -208,6 +233,11 @@ export async function downloadAndInstallApk(
 
     return { success: true };
   } catch (err: any) {
+    activeDownloadResumable = null;
+    const isCancelled = err?.message?.includes?.('cancel') || err?.message?.includes?.('abort');
+    if (isCancelled) {
+      return { success: false, cancelled: true };
+    }
     console.warn('Error in downloadAndInstallApk', err);
     try {
       await openAppUpdateDownload(downloadUrl);

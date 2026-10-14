@@ -9,6 +9,7 @@ import {
   Alert,
   Platform,
   AppState,
+  ScrollView,
 } from 'react-native';
 import {
   SafeAreaProvider,
@@ -22,6 +23,9 @@ import {
   ChartBar as ChartBarIcon,
   Sparkles,
   X,
+  Download,
+  ShieldCheck,
+  AlertCircle,
 } from 'lucide-react-native';
 import { THEME } from './src/theme';
 import {
@@ -40,6 +44,7 @@ import {
   checkForAppUpdate,
   openAppUpdateDownload,
   downloadAndInstallApk,
+  cancelActiveDownload,
   AppUpdateInfo,
 } from './src/services/updateService';
 import { CookieBackground } from './src/components/CookieBackground';
@@ -58,42 +63,73 @@ function MainAppContent() {
   const [logs, setLogs] = useState<ProductionLog[]>(INITIAL_PRODUCTION_LOGS);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
+  const [bannerDismissedVersion, setBannerDismissedVersion] = useState<string | null>(null);
   const [isUpdateModalVisible, setIsUpdateModalVisible] = useState(false);
   const [showInAppBanner, setShowInAppBanner] = useState(false);
   const [downloadingUpdate, setDownloadingUpdate] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatusText, setDownloadStatusText] = useState('');
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
 
   const handleStartUpdate = async () => {
     if (!updateInfo?.downloadUrl) return;
     setDownloadingUpdate(true);
     setDownloadProgress(0);
+    setDownloadError(null);
     setDownloadStatusText('Conectando con el servidor...');
 
-    const result = await downloadAndInstallApk(updateInfo.downloadUrl, (ratio) => {
+    const result = await downloadAndInstallApk(updateInfo.downloadUrl, (ratio, written, total) => {
       setDownloadProgress(ratio);
       if (ratio >= 1) {
         setDownloadStatusText('Iniciando instalador nativo de Android...');
       } else {
-        setDownloadStatusText(`Descargando actualizacion: ${Math.round(ratio * 100)}%`);
+        const percent = Math.round(ratio * 100);
+        let detail = `${percent}%`;
+        if (total && total > 0 && written) {
+          const writtenMb = (written / (1024 * 1024)).toFixed(1);
+          const totalMb = (total / (1024 * 1024)).toFixed(1);
+          detail = `${percent}% (${writtenMb} MB de ${totalMb} MB)`;
+        }
+        setDownloadStatusText(`Descargando actualizacion: ${detail}`);
       }
     });
 
+    if (result.cancelled) {
+      setDownloadingUpdate(false);
+      setDownloadProgress(0);
+      setDownloadStatusText('');
+      return;
+    }
+
     if (!result.success) {
       setDownloadingUpdate(false);
-      Alert.alert(
-        'Aviso de Descarga',
-        'No fue posible iniciar la instalacion nativa directa. ¿Deseas descargar el instalador desde el navegador?',
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          {
-            text: 'Abrir Navegador',
-            onPress: () => updateInfo.downloadUrl && openAppUpdateDownload(updateInfo.downloadUrl),
-          },
-        ]
-      );
+      setDownloadError(result.error || 'No fue posible completar la instalacion nativa.');
+    } else {
+      setDownloadingUpdate(false);
     }
+  };
+
+  const handleCancelUpdate = async () => {
+    await cancelActiveDownload();
+    setDownloadingUpdate(false);
+    setDownloadProgress(0);
+    setDownloadStatusText('');
+    setDownloadError(null);
+  };
+
+  const handleDismissModal = () => {
+    if (updateInfo?.version && !downloadingUpdate) {
+      setDismissedVersion(updateInfo.version);
+    }
+    setIsUpdateModalVisible(false);
+  };
+
+  const handleDismissBanner = () => {
+    if (updateInfo?.version) {
+      setBannerDismissedVersion(updateInfo.version);
+    }
+    setShowInAppBanner(false);
   };
 
   // Dynamic real-time calculation connecting ingredients & exchange rates to all recipes
@@ -199,7 +235,9 @@ function MainAppContent() {
       const update = await checkForAppUpdate();
       if (update.hasUpdate) {
         setUpdateInfo(update);
-        setShowInAppBanner(true);
+        if (update.version !== bannerDismissedVersion) {
+          setShowInAppBanner(true);
+        }
         if (triggerPopup && update.version !== dismissedVersion) {
           setIsUpdateModalVisible(true);
         }
@@ -230,7 +268,7 @@ function MainAppContent() {
       clearInterval(intervalTimer);
       subscription.remove();
     };
-  }, [dismissedVersion]);
+  }, [dismissedVersion, bannerDismissedVersion]);
 
   const safeTopPadding = Platform.OS === 'android'
     ? Math.max(insets.top, StatusBar.currentHeight || 24) + 6
@@ -240,47 +278,92 @@ function MainAppContent() {
     <View style={[styles.safeArea, { paddingTop: safeTopPadding }]}>
       {/* Repeating crash-proof cookie tile background */}
       <CookieBackground />
-      <StatusBar barStyle="light-content" backgroundColor="#09090b" translucent />
+      <StatusBar barStyle="light-content" backgroundColor={THEME.colors.bg} translucent />
 
       {/* In-App Update Notification Banner */}
       {updateInfo && updateInfo.hasUpdate && showInAppBanner && (
         <View style={styles.inAppBannerContainer}>
-          <TouchableOpacity
-            style={styles.inAppBannerTouch}
-            onPress={() => setIsUpdateModalVisible(true)}
-            activeOpacity={0.85}
-          >
-            <View style={styles.inAppBannerLeft}>
-              <View style={styles.inAppBannerBadge}>
-                <Sparkles size={14} color="#09090b" strokeWidth={2.5} />
-              </View>
-              <View style={styles.inAppBannerTexts}>
-                <Text style={styles.inAppBannerTitle}>
-                  Nueva actualizacion disponible
-                </Text>
-                <Text style={styles.inAppBannerSub} numberOfLines={1}>
-                  {updateInfo.version || 'Version reciente lista para instalar'}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.inAppBannerActions}>
+          {downloadingUpdate ? (
+            <View style={styles.inAppBannerRow}>
               <TouchableOpacity
-                style={styles.inAppBannerBtn}
+                style={styles.inAppBannerLeft}
                 onPress={() => setIsUpdateModalVisible(true)}
-                activeOpacity={0.8}
+                activeOpacity={0.85}
               >
-                <Text style={styles.inAppBannerBtnText}>Instalar</Text>
+                <View style={styles.inAppBannerBadge}>
+                  <Download size={14} color={THEME.colors.bg} strokeWidth={2.5} />
+                </View>
+                <View style={styles.inAppBannerTexts}>
+                  <Text style={styles.inAppBannerTitle}>
+                    Descargando actualizacion en segundo plano
+                  </Text>
+                  <Text style={styles.inAppBannerSub} numberOfLines={1}>
+                    {downloadStatusText || `${Math.round(downloadProgress * 100)}% completado`}
+                  </Text>
+                </View>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.inAppBannerClose}
-                onPress={() => setShowInAppBanner(false)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <X size={15} color={THEME.colors.textMuted} />
-              </TouchableOpacity>
+
+              <View style={styles.inAppBannerActions}>
+                <TouchableOpacity
+                  style={styles.inAppBannerBtn}
+                  onPress={() => setIsUpdateModalVisible(true)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.inAppBannerBtnText}>Ver</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.inAppBannerClose}
+                  onPress={handleCancelUpdate}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <X size={16} color={THEME.colors.textMuted} />
+                </TouchableOpacity>
+              </View>
             </View>
-          </TouchableOpacity>
+          ) : (
+            <View style={styles.inAppBannerRow}>
+              <TouchableOpacity
+                style={styles.inAppBannerLeft}
+                onPress={() => setIsUpdateModalVisible(true)}
+                activeOpacity={0.85}
+              >
+                <View style={styles.inAppBannerBadge}>
+                  <Sparkles size={14} color={THEME.colors.bg} strokeWidth={2.5} />
+                </View>
+                <View style={styles.inAppBannerTexts}>
+                  <Text style={styles.inAppBannerTitle}>
+                    Nueva actualizacion disponible
+                  </Text>
+                  <Text style={styles.inAppBannerSub} numberOfLines={1}>
+                    {updateInfo.version || 'Version reciente lista para instalar'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              <View style={styles.inAppBannerActions}>
+                <TouchableOpacity
+                  style={styles.inAppBannerBtn}
+                  onPress={() => setIsUpdateModalVisible(true)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.inAppBannerBtnText}>Instalar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.inAppBannerClose}
+                  onPress={handleDismissBanner}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <X size={16} color={THEME.colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {downloadingUpdate && (
+            <View style={styles.inAppBannerMiniTrack}>
+              <View style={[styles.inAppBannerMiniFill, { width: `${Math.round(downloadProgress * 100)}%` }]} />
+            </View>
+          )}
         </View>
       )}
 
@@ -442,57 +525,128 @@ function MainAppContent() {
         </TouchableOpacity>
       </View>
 
-      {/* Modal de Actualizacion Directa */}
+      {/* Modal de Actualizacion Directa (Boveda Bottom Sheet) */}
       {updateInfo && updateInfo.hasUpdate && isUpdateModalVisible && (
         <Modal
           visible={isUpdateModalVisible}
           transparent
-          animationType="fade"
-          onRequestClose={() => setIsUpdateModalVisible(false)}
+          animationType="slide"
+          onRequestClose={handleDismissModal}
         >
-          <View style={styles.updateModalOverlay}>
-            <View style={styles.updateModalBox}>
-              <View style={styles.updateModalHeader}>
-                <Text style={styles.updateModalBadge}>ACTUALIZACION DISPONIBLE</Text>
-                <Text style={styles.updateModalTitle}>{updateInfo.version}</Text>
+          <View style={styles.sheetOverlay}>
+            <TouchableOpacity
+              style={styles.sheetBackdropDismiss}
+              activeOpacity={1}
+              onPress={handleDismissModal}
+            />
+            <View style={styles.updateSheetBox}>
+              <View style={styles.sheetHandle} />
+
+              <View style={styles.sheetHeaderRow}>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={styles.updateModalBadge}>ACTUALIZACION OFICIAL DISPONIBLE</Text>
+                  <Text style={styles.updateModalTitle}>{updateInfo.version || 'Nueva Version'}</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.sheetCloseBtn}
+                  onPress={handleDismissModal}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  activeOpacity={0.7}
+                >
+                  <X size={16} color={THEME.colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.dataSafeBanner}>
+                <ShieldCheck size={18} color={THEME.colors.accent} />
+                <Text style={styles.dataSafeBannerText}>
+                  Datos locales blindados: Tus recetas, insumos y cuentas por cobrar permanecen intactos.
+                </Text>
               </View>
 
               <Text style={styles.updateModalDesc}>
-                Se ha detectado una nueva version de Imperio Galletil en GitHub. Puedes actualizar directamente sin perder tus datos locales.
+                Se ha detectado una nueva version optimizada para el sistema de Imperio Galletil.
               </Text>
 
               {!!updateInfo.changelog && (
                 <View style={styles.changelogBox}>
-                  <Text style={styles.changelogLabel}>Novedades:</Text>
-                  <Text style={styles.changelogText} numberOfLines={3}>
-                    {updateInfo.changelog}
-                  </Text>
+                  <Text style={styles.changelogLabel}>Novedades de esta version:</Text>
+                  <ScrollView
+                    style={styles.changelogScroll}
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator={true}
+                  >
+                    <Text style={styles.changelogText}>
+                      {updateInfo.changelog}
+                    </Text>
+                  </ScrollView>
                 </View>
               )}
 
               {downloadingUpdate ? (
                 <View style={styles.downloadProgressSection}>
-                  <View style={styles.downloadProgressBarTrack}>
+                  <View
+                    style={styles.downloadProgressBarTrack}
+                    accessibilityRole="progressbar"
+                    accessibilityValue={{ min: 0, max: 100, now: Math.round(downloadProgress * 100) }}
+                  >
                     <View style={[styles.downloadProgressBarFill, { width: `${Math.round(downloadProgress * 100)}%` }]} />
                   </View>
                   <View style={styles.downloadProgressTextRow}>
                     <Text style={styles.downloadStatusText}>{downloadStatusText}</Text>
                     <Text style={styles.downloadPercentText}>{Math.round(downloadProgress * 100)}%</Text>
                   </View>
+
+                  <View style={styles.updateModalButtons}>
+                    <TouchableOpacity
+                      style={styles.btnBackgroundUpdate}
+                      onPress={handleDismissModal}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.btnBackgroundUpdateText}>Segundo Plano</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.btnCancelUpdate}
+                      onPress={handleCancelUpdate}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.btnCancelUpdateText}>Cancelar</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : downloadError ? (
+                <View style={styles.downloadErrorSection}>
+                  <View style={styles.downloadErrorRow}>
+                    <AlertCircle size={18} color={THEME.colors.danger} />
+                    <Text style={styles.downloadErrorText}>{downloadError}</Text>
+                  </View>
+                  <View style={styles.updateModalButtons}>
+                    <TouchableOpacity
+                      style={styles.btnDismissUpdate}
+                      onPress={handleDismissModal}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.btnDismissUpdateText}>Cerrar</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.btnApplyUpdate}
+                      onPress={handleStartUpdate}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.btnApplyUpdateText}>Reintentar</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               ) : (
                 <View style={styles.updateModalButtons}>
                   <TouchableOpacity
                     style={styles.btnDismissUpdate}
-                    onPress={() => {
-                      if (updateInfo?.version) {
-                        setDismissedVersion(updateInfo.version);
-                      }
-                      setIsUpdateModalVisible(false);
-                    }}
+                    onPress={handleDismissModal}
                     activeOpacity={0.7}
                   >
-                    <Text style={styles.btnDismissUpdateText}>Continuar a la App</Text>
+                    <Text style={styles.btnDismissUpdateText}>Posponer</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -640,24 +794,59 @@ const styles = StyleSheet.create({
     color: THEME.colors.accent,
     fontWeight: '700',
   },
-  updateModalOverlay: {
+  sheetOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    justifyContent: 'flex-end',
   },
-  updateModalBox: {
-    width: '100%',
-    maxWidth: 360,
+  sheetBackdropDismiss: {
+    ...StyleSheet.absoluteFill,
+  },
+  updateSheetBox: {
     backgroundColor: THEME.colors.card,
-    borderRadius: THEME.radius.xl,
-    padding: 20,
-    borderWidth: 1,
+    borderTopLeftRadius: THEME.radius.sheet,
+    borderTopRightRadius: THEME.radius.sheet,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
     borderColor: THEME.colors.cardBorderHighlight,
+    maxHeight: '90%',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 28,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
+    elevation: 24,
     gap: 12,
   },
-  updateModalHeader: {},
+  sheetHandle: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.24)',
+    alignSelf: 'center',
+    marginBottom: 8,
+  },
+  sheetHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.colors.cardBorder,
+  },
+  sheetCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: THEME.colors.cardElevated,
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   updateModalBadge: {
     fontSize: 10,
     fontWeight: '800',
@@ -665,10 +854,27 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   updateModalTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '800',
     color: THEME.colors.textPrimary,
     marginTop: 2,
+  },
+  dataSafeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: THEME.colors.accentBg,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.25)',
+    borderRadius: THEME.radius.md,
+    padding: 10,
+  },
+  dataSafeBannerText: {
+    flex: 1,
+    fontSize: 11,
+    color: THEME.colors.accentLight,
+    lineHeight: 16,
+    fontWeight: '600',
   },
   updateModalDesc: {
     fontSize: 12,
@@ -676,61 +882,100 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   changelogBox: {
-    backgroundColor: '#09090b',
+    backgroundColor: THEME.colors.bg,
     borderRadius: THEME.radius.md,
-    padding: 10,
+    padding: 12,
     borderWidth: 1,
     borderColor: THEME.colors.cardBorder,
   },
   changelogLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
     color: THEME.colors.accentLight,
-    marginBottom: 2,
+    marginBottom: 4,
+  },
+  changelogScroll: {
+    maxHeight: 120,
   },
   changelogText: {
-    fontSize: 11,
+    fontSize: 12,
     color: THEME.colors.textSecondary,
-    lineHeight: 16,
+    lineHeight: 18,
   },
   updateModalButtons: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 4,
+    marginTop: 6,
   },
   btnDismissUpdate: {
     flex: 1,
-    backgroundColor: '#18181b',
+    minHeight: 46,
+    backgroundColor: THEME.colors.cardElevated,
     borderWidth: 1,
     borderColor: THEME.colors.cardBorder,
-    paddingVertical: 11,
+    paddingVertical: 12,
     borderRadius: THEME.radius.md,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   btnDismissUpdateText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
     color: THEME.colors.textSecondary,
   },
   btnApplyUpdate: {
     flex: 1,
+    minHeight: 46,
     backgroundColor: THEME.colors.accent,
-    paddingVertical: 11,
+    paddingVertical: 12,
     borderRadius: THEME.radius.md,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   btnApplyUpdateText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
-    color: '#09090b',
+    color: THEME.colors.bg,
+  },
+  btnBackgroundUpdate: {
+    flex: 1,
+    minHeight: 46,
+    backgroundColor: THEME.colors.cardElevated,
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+    paddingVertical: 12,
+    borderRadius: THEME.radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnBackgroundUpdateText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: THEME.colors.textPrimary,
+  },
+  btnCancelUpdate: {
+    minHeight: 46,
+    paddingHorizontal: 16,
+    backgroundColor: THEME.colors.dangerBg,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+    paddingVertical: 12,
+    borderRadius: THEME.radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnCancelUpdateText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: THEME.colors.danger,
   },
   downloadProgressSection: {
-    marginTop: 6,
+    marginTop: 4,
     gap: 8,
   },
   downloadProgressBarTrack: {
     height: 8,
-    backgroundColor: '#09090b',
+    backgroundColor: THEME.colors.bg,
     borderRadius: THEME.radius.full,
     overflow: 'hidden',
     borderWidth: 1,
@@ -749,20 +994,42 @@ const styles = StyleSheet.create({
   downloadStatusText: {
     fontSize: 11,
     color: THEME.colors.textSecondary,
+    flex: 1,
+    marginRight: 8,
   },
   downloadPercentText: {
     fontSize: 12,
     fontWeight: '800',
     color: THEME.colors.accent,
   },
+  downloadErrorSection: {
+    marginTop: 4,
+    gap: 8,
+  },
+  downloadErrorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: THEME.colors.dangerBg,
+    borderRadius: THEME.radius.md,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+  },
+  downloadErrorText: {
+    fontSize: 11,
+    color: THEME.colors.danger,
+    flex: 1,
+    lineHeight: 16,
+  },
   inAppBannerContainer: {
-    backgroundColor: 'rgba(18, 18, 21, 0.98)',
+    backgroundColor: THEME.colors.card,
     borderBottomWidth: 1,
     borderBottomColor: THEME.colors.cardBorderHighlight,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
-  inAppBannerTouch: {
+  inAppBannerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -798,20 +1065,38 @@ const styles = StyleSheet.create({
   inAppBannerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
   inAppBannerBtn: {
     backgroundColor: THEME.colors.accent,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 12,
+    minHeight: 36,
     borderRadius: THEME.radius.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   inAppBannerBtnText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#09090b',
+    color: THEME.colors.bg,
   },
   inAppBannerClose: {
-    padding: 3,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inAppBannerMiniTrack: {
+    height: 3,
+    backgroundColor: THEME.colors.bg,
+    borderRadius: 2,
+    marginTop: 6,
+    overflow: 'hidden',
+  },
+  inAppBannerMiniFill: {
+    height: '100%',
+    backgroundColor: THEME.colors.accent,
+    borderRadius: 2,
   },
 });
