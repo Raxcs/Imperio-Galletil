@@ -93,6 +93,8 @@ jobs:
             [Imperio-Galletil.apk](https://github.com/Raxcs/Imperio-Galletil/releases/latest/download/Imperio-Galletil.apk)
           draft: false
           prerelease: false
+          make_latest: true
+          overwrite: true
           files: |
             build-output/Imperio-Galletil.apk
             build-output/version.json

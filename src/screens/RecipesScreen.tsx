@@ -476,37 +476,43 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
         <Plus size={24} color="#09090b" strokeWidth={2.5} />
       </TouchableOpacity>
 
-      {/* Detail Recipe Modal */}
+      {/* Detail Recipe Modal (Bóveda Bottom Sheet) */}
       {selectedRecipe && (
         <Modal
           visible={!!selectedRecipeId}
+          transparent
           animationType="slide"
-          presentationStyle="pageSheet"
           onRequestClose={closeRecipeModal}
         >
-          <View style={styles.modalContainer}>
-            {/* Modal Navigation Header */}
-            <View style={styles.modalNavHeader}>
-              <TouchableOpacity
-                style={styles.backButton}
-                onPress={closeRecipeModal}
-                activeOpacity={0.7}
-              >
-                <ChevronLeft size={18} color={THEME.colors.accent} strokeWidth={2.4} />
-                <Text style={styles.backButtonText}>Recetario</Text>
-              </TouchableOpacity>
-            </View>
+          <View style={styles.sheetOverlay}>
+            <TouchableOpacity
+              style={styles.sheetBackdropDismiss}
+              activeOpacity={1}
+              onPress={closeRecipeModal}
+            />
+            <View style={styles.recipeDetailSheetBox}>
+              <View style={styles.sheetHandle} />
 
-            <ScrollView
-              style={styles.modalScroll}
-              contentContainerStyle={styles.modalContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {/* Recipe Titles */}
-              <View style={styles.recipeTitleSection}>
-                <Text style={styles.modalRecipeTitle}>{selectedRecipe.title}</Text>
-                <Text style={styles.modalRecipeSubtitle}>{selectedRecipe.subtitle}</Text>
+              <View style={styles.sheetHeaderRow}>
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={styles.sheetHeaderTitle}>{selectedRecipe.title}</Text>
+                  <Text style={styles.sheetHeaderSub}>{selectedRecipe.subtitle}</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.sheetCloseBtn}
+                  onPress={closeRecipeModal}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  activeOpacity={0.7}
+                >
+                  <X size={16} color={THEME.colors.textMuted} />
+                </TouchableOpacity>
               </View>
+
+              <ScrollView
+                style={styles.recipeDetailScroll}
+                contentContainerStyle={styles.recipeDetailContent}
+                showsVerticalScrollIndicator={false}
+              >
 
               {/* General Costs Breakdown */}
               <View style={styles.metricsRow}>
@@ -682,31 +688,41 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
                 onPress={closeRecipeModal}
                 activeOpacity={0.7}
               >
-                <Text style={styles.bottomCloseBtnText}>Volver a la Lista</Text>
+                <Text style={styles.bottomCloseBtnText}>Cerrar Receta</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
-        </Modal>
-      )}
+        </View>
+      </Modal>
+    )}
 
-      {/* Unified Recipe Editor Modal (New / Edit) */}
+      {/* Unified Recipe Editor Modal (New / Edit) - Bóveda Bottom Sheet */}
       <Modal
         visible={isEditorModalOpen}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setIsEditorModalOpen(false)}
       >
-        <View style={styles.createModalOverlay}>
-          <View style={styles.createModalBox}>
-            <View style={styles.createModalHeader}>
-              <Text style={styles.createModalTitle}>
+        <View style={styles.sheetOverlay}>
+          <TouchableOpacity
+            style={styles.sheetBackdropDismiss}
+            activeOpacity={1}
+            onPress={() => setIsEditorModalOpen(false)}
+          />
+          <View style={styles.recipeEditorSheetBox}>
+            <View style={styles.sheetHandle} />
+
+            <View style={styles.sheetHeaderRow}>
+              <Text style={styles.sheetHeaderTitle}>
                 {editorRecipeId ? `Editar Receta` : `Nueva Receta`}
               </Text>
               <TouchableOpacity
+                style={styles.sheetCloseBtn}
                 onPress={() => setIsEditorModalOpen(false)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                activeOpacity={0.7}
               >
-                <X size={18} color={THEME.colors.textMuted} />
+                <X size={16} color={THEME.colors.textMuted} />
               </TouchableOpacity>
             </View>
 
@@ -897,22 +913,31 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
         </View>
       </Modal>
 
-      {/* Ingredient Picker Sheet for Editor Rows */}
+      {/* Ingredient Picker Sheet for Editor Rows - Bóveda Bottom Sheet */}
       <Modal
         visible={!!activePickerRowId}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setActivePickerRowId(null)}
       >
-        <View style={styles.createModalOverlay}>
-          <View style={[styles.createModalBox, { maxHeight: '80%' }]}>
-            <View style={styles.createModalHeader}>
-              <Text style={styles.createModalTitle}>Seleccionar Insumo</Text>
+        <View style={styles.sheetOverlay}>
+          <TouchableOpacity
+            style={styles.sheetBackdropDismiss}
+            activeOpacity={1}
+            onPress={() => setActivePickerRowId(null)}
+          />
+          <View style={[styles.recipeEditorSheetBox, { maxHeight: '80%' }]}>
+            <View style={styles.sheetHandle} />
+
+            <View style={styles.sheetHeaderRow}>
+              <Text style={styles.sheetHeaderTitle}>Seleccionar Insumo</Text>
               <TouchableOpacity
+                style={styles.sheetCloseBtn}
                 onPress={() => setActivePickerRowId(null)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                activeOpacity={0.7}
               >
-                <X size={18} color={THEME.colors.textMuted} />
+                <X size={16} color={THEME.colors.textMuted} />
               </TouchableOpacity>
             </View>
 
@@ -1074,45 +1099,102 @@ const styles = StyleSheet.create({
     marginTop: 1,
     fontVariant: ['tabular-nums'],
   },
-  modalContainer: {
+  sheetOverlay: {
     flex: 1,
-    backgroundColor: '#09090b',
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    justifyContent: 'flex-end',
   },
-  modalNavHeader: {
+  sheetBackdropDismiss: {
+    ...StyleSheet.absoluteFill,
+  },
+  recipeDetailSheetBox: {
     backgroundColor: THEME.colors.card,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    maxHeight: '90%',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
+    elevation: 24,
+  },
+  recipeEditorSheetBox: {
+    backgroundColor: THEME.colors.card,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    maxHeight: '92%',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 28,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
+    elevation: 24,
+  },
+  sheetHandle: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.24)',
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  sheetHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 14,
+    paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: THEME.colors.cardBorder,
   },
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  backButtonText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: THEME.colors.accent,
-  },
-  modalScroll: {
-    flex: 1,
-  },
-  modalContent: {
-    padding: 16,
-    gap: 14,
-    paddingBottom: 40,
-  },
-  recipeTitleSection: {},
-  modalRecipeTitle: {
+  sheetHeaderTitle: {
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '700',
     color: THEME.colors.textPrimary,
   },
-  modalRecipeSubtitle: {
+  sheetHeaderSub: {
     fontSize: 12,
-    color: THEME.colors.textSecondary,
+    color: THEME.colors.textMuted,
     marginTop: 2,
+  },
+  sheetCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: THEME.colors.cardElevated,
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recipeDetailScroll: {
+    flexGrow: 0,
+  },
+  recipeDetailContent: {
+    gap: 14,
+    paddingBottom: 20,
+  },
+  recipeCostCard: {
+    backgroundColor: THEME.colors.cardElevated,
+    borderRadius: THEME.radius.md,
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorderSubtle,
+    padding: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
   metricsRow: {
     flexDirection: 'row',
@@ -1401,9 +1483,9 @@ const styles = StyleSheet.create({
     minHeight: 70,
   },
   editorCostBanner: {
-    backgroundColor: '#09090b',
+    backgroundColor: THEME.colors.cardElevated,
     borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.3)',
+    borderColor: THEME.colors.cardBorderSubtle,
     borderRadius: THEME.radius.md,
     padding: 12,
     flexDirection: 'row',
