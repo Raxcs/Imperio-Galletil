@@ -42,7 +42,7 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
   const initialRecipe = recipes[0];
   const initialCost = initialRecipe ? Number((initialRecipe.pack_cost_usd * rates.usd_ves).toFixed(2)) : 286.93;
 
-  const [isAddFormVisible, setIsAddFormVisible] = useState(false);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -75,6 +75,7 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
   const [prodQtyStr, setProdQtyStr] = useState(initialRecipe?.batch_yield ? initialRecipe.batch_yield.toString() : '23');
   const [prodPriceStr, setProdPriceStr] = useState('1000');
   const [prodCost, setProdCost] = useState(initialCost);
+  const [prodCostStr, setProdCostStr] = useState(initialCost.toString());
 
   // Totals - only active, non-deleted, non-seed production logs
   let totalGrossVes = 0;
@@ -100,14 +101,16 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
 
   const previewQty = parseInt(prodQtyStr, 10) || 0;
   const previewPrice = parseFloat(prodPriceStr) || 0;
+  const previewCostUnit = parseFloat(prodCostStr) || prodCost;
   const previewGrossVes = previewQty * previewPrice;
-  const previewCostVes = previewQty * prodCost;
+  const previewCostVes = previewQty * previewCostUnit;
   const previewNetVes = Math.max(0, previewGrossVes - previewCostVes);
 
   const handleSelectRecipePreset = (recipe: Recipe) => {
     setProdName(recipe.title);
     const unitCost = Number((recipe.pack_cost_usd * rates.usd_ves).toFixed(2));
     setProdCost(unitCost);
+    setProdCostStr(unitCost.toString());
     setProdQtyStr(recipe.batch_yield.toString());
     const lower = recipe.title.toLowerCase();
     if (lower.includes('brownie')) {
@@ -140,13 +143,16 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
       ? Number((matchedRecipe.pack_cost_usd * rates.usd_ves).toFixed(2))
       : prodCost;
 
+    const userCost = parseFloat(prodCostStr);
+    const finalCost = (!isNaN(userCost) && userCost > 0) ? userCost : calculatedCost;
+
     const newLogId = generateId();
     const newLog: ProductionLog = {
       id: newLogId,
       name: trimmed,
       qty,
       price_ves: price,
-      cost_ves: calculatedCost,
+      cost_ves: finalCost,
       created_at: new Date().toISOString(),
     };
 
@@ -155,8 +161,8 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
     onLogsUpdated(updated);
     await setCachedProductionLogs(updated);
 
-    // Close form immediately so the user cannot double-click
-    setIsAddFormVisible(false);
+    // Close modal immediately so the user cannot double-click
+    setIsAddModalOpen(false);
 
     try {
       await addProductionLogInBackend(newLog);
@@ -308,142 +314,18 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
         <View style={styles.prodSectionCard}>
           <View style={styles.prodSectionHeader}>
             <View>
-              <Text style={styles.prodSectionTitle}>REGISTRO DE PRODUCCION</Text>
+              <Text style={styles.prodSectionTitle}>Bitacora de Lotes Horneados</Text>
               <Text style={styles.prodSectionSubtitle}>Desliza para borrar o toca para editar</Text>
             </View>
-            <TouchableOpacity
-              style={styles.addProdBtn}
-              onPress={() => setIsAddFormVisible(!isAddFormVisible)}
-              activeOpacity={0.7}
-            >
-              <Plus size={13} color={THEME.colors.accent} strokeWidth={2.4} />
-              <Text style={styles.addProdBtnText}>Añadir</Text>
-            </TouchableOpacity>
+            <Text style={styles.prodMarginText}>Margen: {margin}%</Text>
           </View>
-
-          {/* Expandable Form */}
-          {isAddFormVisible && (
-            <View style={styles.addProdFormBox}>
-              <Text style={styles.formPromptTitle}>Nuevo Producto en Produccion</Text>
-
-              {/* Presets based on actual recipes */}
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.presetButtonsRow}
-              >
-                {recipes.map((recipe) => {
-                  const isActive = prodName.toLowerCase().trim() === recipe.title.toLowerCase().trim();
-                  const unitCostVes = recipe.pack_cost_usd * rates.usd_ves;
-                  return (
-                    <TouchableOpacity
-                      key={recipe.id}
-                      style={[styles.presetBtn, isActive && styles.presetBtnActive]}
-                      onPress={() => handleSelectRecipePreset(recipe)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.presetBtnTitle, isActive && styles.presetBtnTitleActive]} numberOfLines={1}>
-                        {recipe.title}
-                      </Text>
-                      <View style={styles.presetBtnSubRow}>
-                        <Text style={[styles.presetBtnSubText, isActive && styles.presetBtnSubTextActive]}>
-                          {recipe.batch_yield} un
-                        </Text>
-                        <Text style={[styles.presetBtnSubText, isActive && styles.presetBtnSubTextActive]}>
-                          Bs. {unitCostVes.toFixed(0)}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-
-              <View style={styles.fieldWrapper}>
-                <Text style={styles.label}>Nombre del producto</Text>
-                <TextInput
-                  style={styles.input}
-                  value={prodName}
-                  onChangeText={setProdName}
-                  placeholder="Ej: Galletas Clasicas"
-                  placeholderTextColor={THEME.colors.textMuted}
-                />
-              </View>
-
-              <View style={styles.rowFields}>
-                <View style={[styles.fieldWrapper, { flex: 1 }]}>
-                  <Text style={styles.label}>Packs hechos</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={prodQtyStr}
-                    onChangeText={setProdQtyStr}
-                    keyboardType="numeric"
-                    placeholder="40"
-                    placeholderTextColor={THEME.colors.textMuted}
-                  />
-                </View>
-
-                <View style={[styles.fieldWrapper, { flex: 1 }]}>
-                  <Text style={styles.label}>Precio venta (Bs)</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={prodPriceStr}
-                    onChangeText={setProdPriceStr}
-                    keyboardType="numeric"
-                    placeholder="1000"
-                    placeholderTextColor={THEME.colors.textMuted}
-                  />
-                </View>
-              </View>
-
-              {/* Financial Projection Live Card */}
-              <View style={styles.liveProjectionBox}>
-                <View style={styles.liveProjRow}>
-                  <Text style={styles.liveProjMuted}>Ventas Estimadas:</Text>
-                  <Text style={styles.liveProjValueWhite}>
-                    Bs. {previewGrossVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </Text>
-                </View>
-                <View style={styles.liveProjDivider} />
-                <View style={styles.liveProjRow}>
-                  <View>
-                    <Text style={styles.liveProjAccentLabel}>Fondo Insumos (Reponer):</Text>
-                    <Text style={styles.liveProjTinyDesc}>Intocable para materia prima</Text>
-                  </View>
-                  <Text style={styles.liveProjValueAmber}>
-                    Bs. {previewCostVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </Text>
-                </View>
-                <View style={styles.liveProjDivider} />
-                <View style={styles.liveProjRow}>
-                  <View>
-                    <Text style={styles.liveProjSuccessLabel}>Ganancia Libre:</Text>
-                    <Text style={styles.liveProjTinyDesc}>Margen neto disponible</Text>
-                  </View>
-                  <Text style={styles.liveProjValueGreen}>
-                    Bs. {previewNetVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </Text>
-                </View>
-              </View>
-
-              <TouchableOpacity
-                style={[styles.submitProdBtn, isSubmitting && { opacity: 0.6 }]}
-                onPress={handleAddProduction}
-                disabled={isSubmitting}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.submitProdBtnText}>
-                  {isSubmitting ? 'Guardando...' : 'Aceptar y Guardar Lote'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
 
           {/* List of items */}
           <View style={styles.logsList}>
             {activeLogs.length === 0 ? (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>Sin lotes registrados</Text>
-                <Text style={styles.emptyText}>Toca en Añadir para registrar los packs producidos hoy.</Text>
+                <Text style={styles.emptyText}>Toca el boton + para registrar los packs producidos hoy.</Text>
               </View>
             ) : (
               activeLogs.map((item) => {
@@ -619,6 +501,178 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
           </View>
         </Modal>
       )}
+
+      {/* Floating Action Button (Registrar Lote) */}
+      <TouchableOpacity
+        style={styles.fabBtn}
+        onPress={() => setIsAddModalOpen(true)}
+        activeOpacity={0.85}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Plus size={24} color="#09090b" strokeWidth={2.6} />
+      </TouchableOpacity>
+
+      {/* Add Production Log Modal (Bóveda Bottom Sheet) */}
+      <Modal
+        visible={isAddModalOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setIsAddModalOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity
+            style={styles.modalBackdropDismiss}
+            activeOpacity={1}
+            onPress={() => setIsAddModalOpen(false)}
+          />
+          <View style={styles.sheetBox}>
+            <View style={styles.sheetHandle} />
+
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Registrar Lote de Produccion</Text>
+                <Text style={styles.modalSubtitle}>Seleccionar Receta Preset</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.sheetCloseBtn}
+                onPress={() => setIsAddModalOpen(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                activeOpacity={0.7}
+              >
+                <X size={16} color={THEME.colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Presets based on actual recipes */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.presetButtonsRow}
+              >
+                {recipes.map((recipe) => {
+                  const isActive = prodName.toLowerCase().trim() === recipe.title.toLowerCase().trim();
+                  const unitCostVes = recipe.pack_cost_usd * rates.usd_ves;
+                  return (
+                    <TouchableOpacity
+                      key={recipe.id}
+                      style={[styles.presetBtn, isActive && styles.presetBtnActive]}
+                      onPress={() => handleSelectRecipePreset(recipe)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.presetBtnTitle, isActive && styles.presetBtnTitleActive]} numberOfLines={1}>
+                        {recipe.title}
+                      </Text>
+                      <View style={styles.presetBtnSubRow}>
+                        <Text style={[styles.presetBtnSubText, isActive && styles.presetBtnSubTextActive]}>
+                          {recipe.batch_yield} un
+                        </Text>
+                        <Text style={[styles.presetBtnSubText, isActive && styles.presetBtnSubTextActive]}>
+                          Bs. {unitCostVes.toFixed(0)}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              <View style={styles.fieldWrapper}>
+                <Text style={styles.label}>Nombre del producto</Text>
+                <TextInput
+                  style={styles.input}
+                  value={prodName}
+                  onChangeText={setProdName}
+                  placeholder="Ej: Galletas Clasicas"
+                  placeholderTextColor={THEME.colors.textMuted}
+                />
+              </View>
+
+              <View style={styles.rowFields}>
+                <View style={[styles.fieldWrapper, { flex: 1 }]}>
+                  <Text style={styles.label}>Packs hechos (un)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={prodQtyStr}
+                    onChangeText={setProdQtyStr}
+                    keyboardType="numeric"
+                    placeholder="40"
+                    placeholderTextColor={THEME.colors.textMuted}
+                  />
+                </View>
+
+                <View style={[styles.fieldWrapper, { flex: 1 }]}>
+                  <Text style={styles.label}>Precio venta (Bs.)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={prodPriceStr}
+                    onChangeText={setProdPriceStr}
+                    keyboardType="numeric"
+                    placeholder="1000"
+                    placeholderTextColor={THEME.colors.textMuted}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.fieldWrapper}>
+                <Text style={styles.label}>Costo unitario por pack (Bs.)</Text>
+                <TextInput
+                  style={styles.input}
+                  value={prodCostStr}
+                  onChangeText={setProdCostStr}
+                  keyboardType="numeric"
+                  placeholder="286.93"
+                  placeholderTextColor={THEME.colors.textMuted}
+                />
+              </View>
+
+              {/* Financial Projection Live Card */}
+              <View style={styles.liveProjectionBox}>
+                <View style={styles.liveProjRow}>
+                  <Text style={styles.liveProjMuted}>Ventas Estimadas</Text>
+                  <Text style={styles.liveProjValueWhite}>
+                    Bs. {previewGrossVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
+                </View>
+                <View style={styles.liveProjDivider} />
+                <View style={styles.liveProjRow}>
+                  <View>
+                    <Text style={styles.liveProjAccentLabel}>Fondo Insumos (Reponer)</Text>
+                    <Text style={styles.liveProjTinyDesc}>Intocable para materia prima</Text>
+                  </View>
+                  <Text style={styles.liveProjValueAmber}>
+                    Bs. {previewCostVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
+                </View>
+                <View style={styles.liveProjDivider} />
+                <View style={styles.liveProjRow}>
+                  <View>
+                    <Text style={styles.liveProjSuccessLabel}>Ganancia Libre</Text>
+                    <Text style={styles.liveProjTinyDesc}>Margen neto disponible</Text>
+                  </View>
+                  <Text style={styles.liveProjValueGreen}>
+                    Bs. {previewNetVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.saveModalBtn, isSubmitting && { opacity: 0.6 }]}
+                onPress={handleAddProduction}
+                disabled={isSubmitting}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.saveModalBtnText}>
+                  {isSubmitting ? 'Guardando...' : 'Guardar Lote'}
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -655,7 +709,7 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingTop: 4,
     gap: 14,
-    paddingBottom: 30,
+    paddingBottom: 96,
   },
   metricHero: {
     backgroundColor: THEME.colors.card,
@@ -836,34 +890,11 @@ const styles = StyleSheet.create({
     color: THEME.colors.textMuted,
     marginTop: 1,
   },
-  addProdBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#09090b',
-    borderWidth: 1,
-    borderColor: THEME.colors.cardBorderHighlight,
-    borderRadius: THEME.radius.sm,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  addProdBtnText: {
+  prodMarginText: {
     fontSize: 11,
+    color: THEME.colors.textMuted,
     fontWeight: '700',
-    color: THEME.colors.accent,
-  },
-  addProdFormBox: {
-    backgroundColor: '#09090b',
-    borderRadius: THEME.radius.md,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: THEME.colors.cardBorder,
-    gap: 10,
-  },
-  formPromptTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: THEME.colors.textPrimary,
+    fontVariant: ['tabular-nums'],
   },
   presetButtonsRow: {
     flexDirection: 'row',
@@ -1143,6 +1174,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 1,
     borderRightWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.14)',
+    maxHeight: '90%',
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 32,
@@ -1228,5 +1260,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: '#09090b',
+  },
+  modalScroll: {
+    maxHeight: 520,
+  },
+  modalScrollContent: {
+    gap: 12,
+    paddingBottom: 16,
+  },
+  fabBtn: {
+    position: 'absolute',
+    bottom: 20,
+    right: 18,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: THEME.colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 8,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    zIndex: 99,
   },
 });
