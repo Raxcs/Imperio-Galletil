@@ -66,11 +66,8 @@ export const SwipeableRow: React.FC<SwipeableRowProps> = ({
         },
         onPanResponderMove: (_, gesture) => {
           const offset = isOpenRef.current ? -76 : 0;
-          const nextX = gesture.dx + offset;
-          // Solo permitir deslizar hacia la izquierda
-          if (nextX <= 0) {
-            translateX.setValue(nextX);
-          }
+          const nextX = Math.min(0, gesture.dx + offset);
+          translateX.setValue(nextX);
         },
         onPanResponderRelease: (_, gesture) => {
           const currentPos = gesture.dx + (isOpenRef.current ? -76 : 0);
@@ -92,10 +89,23 @@ export const SwipeableRow: React.FC<SwipeableRowProps> = ({
     [disabled, translateX]
   );
 
+  const actionOpacity = translateX.interpolate({
+    inputRange: [-24, 0],
+    outputRange: [1, 0],
+    extrapolate: 'clamp',
+  });
+
   return (
     <View style={[styles.container, style]}>
       {/* Acción oculta en el fondo rojo al deslizar */}
-      <View style={styles.actionBackground}>
+      <Animated.View
+        style={[
+          styles.actionBackground,
+          {
+            opacity: actionOpacity,
+          },
+        ]}
+      >
         <TouchableOpacity
           style={styles.deleteButton}
           onPress={triggerFullDelete}
@@ -104,7 +114,7 @@ export const SwipeableRow: React.FC<SwipeableRowProps> = ({
           <Trash2 size={16} color="#ffffff" strokeWidth={2.4} />
           <Text style={styles.deleteText}>{deleteLabel}</Text>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
 
       {/* Contenido deslizable */}
       <Animated.View
