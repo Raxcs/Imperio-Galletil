@@ -98,6 +98,12 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
     ? ((netProfitVes / totalGrossVes) * 100).toFixed(1)
     : '0';
 
+  const previewQty = parseInt(prodQtyStr, 10) || 0;
+  const previewPrice = parseFloat(prodPriceStr) || 0;
+  const previewGrossVes = previewQty * previewPrice;
+  const previewCostVes = previewQty * prodCost;
+  const previewNetVes = Math.max(0, previewGrossVes - previewCostVes);
+
   const handleSelectRecipePreset = (recipe: Recipe) => {
     setProdName(recipe.title);
     const unitCost = Number((recipe.pack_cost_usd * rates.usd_ves).toFixed(2));
@@ -339,7 +345,11 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
               <Text style={styles.formPromptTitle}>Nuevo Producto en Produccion</Text>
 
               {/* Presets based on actual recipes */}
-              <View style={styles.presetButtonsRow}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.presetButtonsRow}
+              >
                 {recipes.map((recipe) => {
                   const isActive = prodName.toLowerCase().trim() === recipe.title.toLowerCase().trim();
                   const unitCostVes = recipe.pack_cost_usd * rates.usd_ves;
@@ -350,13 +360,21 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
                       onPress={() => handleSelectRecipePreset(recipe)}
                       activeOpacity={0.7}
                     >
-                      <Text style={[styles.presetBtnText, isActive && styles.presetBtnTextActive]}>
-                        {recipe.title} (Bs. {unitCostVes.toFixed(0)})
+                      <Text style={[styles.presetBtnTitle, isActive && styles.presetBtnTitleActive]} numberOfLines={1}>
+                        {recipe.title}
                       </Text>
+                      <View style={styles.presetBtnSubRow}>
+                        <Text style={[styles.presetBtnSubText, isActive && styles.presetBtnSubTextActive]}>
+                          {recipe.batch_yield} un
+                        </Text>
+                        <Text style={[styles.presetBtnSubText, isActive && styles.presetBtnSubTextActive]}>
+                          Bs. {unitCostVes.toFixed(0)}
+                        </Text>
+                      </View>
                     </TouchableOpacity>
                   );
                 })}
-              </View>
+              </ScrollView>
 
               <View style={styles.fieldWrapper}>
                 <Text style={styles.label}>Nombre del producto</Text>
@@ -395,6 +413,36 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
                 </View>
               </View>
 
+              {/* Financial Projection Live Card */}
+              <View style={styles.liveProjectionBox}>
+                <View style={styles.liveProjRow}>
+                  <Text style={styles.liveProjMuted}>Ventas Estimadas:</Text>
+                  <Text style={styles.liveProjValueWhite}>
+                    Bs. {previewGrossVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
+                </View>
+                <View style={styles.liveProjDivider} />
+                <View style={styles.liveProjRow}>
+                  <View>
+                    <Text style={styles.liveProjAccentLabel}>Fondo Insumos (Reponer):</Text>
+                    <Text style={styles.liveProjTinyDesc}>Intocable para materia prima</Text>
+                  </View>
+                  <Text style={styles.liveProjValueAmber}>
+                    Bs. {previewCostVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
+                </View>
+                <View style={styles.liveProjDivider} />
+                <View style={styles.liveProjRow}>
+                  <View>
+                    <Text style={styles.liveProjSuccessLabel}>Ganancia Libre:</Text>
+                    <Text style={styles.liveProjTinyDesc}>Margen neto disponible</Text>
+                  </View>
+                  <Text style={styles.liveProjValueGreen}>
+                    Bs. {previewNetVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </Text>
+                </View>
+              </View>
+
               <TouchableOpacity
                 style={[styles.submitProdBtn, isSubmitting && { opacity: 0.6 }]}
                 onPress={handleAddProduction}
@@ -402,7 +450,7 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
                 activeOpacity={0.8}
               >
                 <Text style={styles.submitProdBtnText}>
-                  {isSubmitting ? 'Guardando...' : 'Aceptar y Recalcular'}
+                  {isSubmitting ? 'Guardando...' : 'Aceptar y Guardar Lote'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -764,30 +812,102 @@ const styles = StyleSheet.create({
   presetButtonsRow: {
     flexDirection: 'row',
     gap: 8,
+    paddingBottom: 4,
   },
   presetBtn: {
-    flex: 1,
     backgroundColor: THEME.colors.card,
     borderWidth: 1,
     borderColor: THEME.colors.cardBorder,
     borderRadius: THEME.radius.sm,
-    paddingVertical: 6,
-    paddingHorizontal: 6,
-    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    minWidth: 120,
+    gap: 4,
   },
   presetBtnActive: {
     backgroundColor: THEME.colors.accentBg,
     borderColor: THEME.colors.accent,
   },
-  presetBtnText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: THEME.colors.textSecondary,
-    textAlign: 'center',
-  },
-  presetBtnTextActive: {
-    color: THEME.colors.accentLight,
+  presetBtnTitle: {
+    fontSize: 12,
     fontWeight: '700',
+    color: THEME.colors.textPrimary,
+  },
+  presetBtnTitleActive: {
+    color: THEME.colors.accentLight,
+  },
+  presetBtnSubRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 6,
+  },
+  presetBtnSubText: {
+    fontSize: 10,
+    color: THEME.colors.textMuted,
+    fontVariant: ['tabular-nums'],
+  },
+  presetBtnSubTextActive: {
+    color: THEME.colors.accentLight,
+    opacity: 0.9,
+  },
+  liveProjectionBox: {
+    backgroundColor: '#121214',
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+    borderRadius: THEME.radius.sm,
+    padding: 10,
+    gap: 6,
+  },
+  liveProjRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  liveProjDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    marginVertical: 2,
+  },
+  liveProjMuted: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: THEME.colors.textMuted,
+    textTransform: 'uppercase',
+  },
+  liveProjValueWhite: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#ffffff',
+    fontVariant: ['tabular-nums'],
+  },
+  liveProjAccentLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: THEME.colors.accentLight,
+    textTransform: 'uppercase',
+  },
+  liveProjTinyDesc: {
+    fontSize: 9,
+    color: THEME.colors.textMuted,
+  },
+  liveProjValueAmber: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: THEME.colors.accentLight,
+    fontVariant: ['tabular-nums'],
+  },
+  liveProjSuccessLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: THEME.colors.success,
+    textTransform: 'uppercase',
+  },
+  liveProjValueGreen: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: THEME.colors.success,
+    fontVariant: ['tabular-nums'],
   },
   fieldWrapper: {},
   rowFields: {

@@ -814,74 +814,68 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
 
                     return (
                       <View key={row.id} style={styles.ingPortionRow}>
-                        {/* Ingredient Picker Button */}
-                        <TouchableOpacity
-                          style={styles.ingSelectBtn}
-                          onPress={() => setActivePickerRowId(row.id)}
-                          activeOpacity={0.8}
-                        >
-                          <Text style={styles.ingSelectBtnTitle} numberOfLines={1}>
-                            {matched ? matched.name : 'Seleccionar insumo...'}
-                          </Text>
-                          <Text style={styles.ingSelectBtnSub} numberOfLines={1}>
-                            {matched ? `$${matched.price_usd.toFixed(2)} / ${matched.presentation}` : 'Toca para elegir'}
-                          </Text>
-                        </TouchableOpacity>
+                        {/* Top Row: Ingredient selector + Delete button */}
+                        <View style={styles.ingPortionTopRow}>
+                          <TouchableOpacity
+                            style={styles.ingSelectBtn}
+                            onPress={() => setActivePickerRowId(row.id)}
+                            activeOpacity={0.8}
+                          >
+                            <Text style={styles.ingSelectBtnTitle} numberOfLines={1}>
+                              {matched ? matched.name : 'Seleccionar insumo...'}
+                            </Text>
+                            <Text style={styles.ingSelectBtnSub} numberOfLines={1}>
+                              {matched ? `$${matched.price_usd.toFixed(2)} / ${matched.presentation}` : 'Toca para elegir'}
+                            </Text>
+                          </TouchableOpacity>
 
-                        {/* Quantity input */}
-                        <TextInput
-                          style={styles.ingQtyInput}
-                          value={row.used_qty > 0 ? String(row.used_qty) : ''}
-                          onChangeText={(val) => handleRowQtyChange(row.id, val)}
-                          keyboardType="numeric"
-                          placeholder="100"
-                          placeholderTextColor={THEME.colors.textMuted}
-                        />
-
-                        {/* Unit selector pills */}
-                        <View style={styles.unitPillsRow}>
-                          {AVAILABLE_UNITS.map((u) => {
-                            const isSelected = row.used_unit === u;
-                            return (
-                              <TouchableOpacity
-                                key={u}
-                                style={[styles.unitPill, isSelected && styles.unitPillActive]}
-                                onPress={() => handleRowUnitChange(row.id, u)}
-                                activeOpacity={0.7}
-                              >
-                                <Text style={[styles.unitPillText, isSelected && styles.unitPillTextActive]}>
-                                  {u}
-                                </Text>
-                              </TouchableOpacity>
-                            );
-                          })}
+                          <TouchableOpacity
+                            style={styles.delRowBtn}
+                            onPress={() => handleRemoveIngredientRow(row.id)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            activeOpacity={0.7}
+                          >
+                            <X size={15} color={THEME.colors.textMuted} />
+                          </TouchableOpacity>
                         </View>
 
-                        {/* Calculated cost badge */}
-                        <View style={styles.portionCostBadge}>
-                          <Text style={styles.portionCostBadgeText}>${portionCost.toFixed(2)}</Text>
-                        </View>
+                        {/* Bottom Row: Quantity input + Unit selector pills + Cost badge */}
+                        <View style={styles.ingPortionBottomRow}>
+                          <TextInput
+                            style={styles.ingQtyInput}
+                            value={row.used_qty > 0 ? String(row.used_qty) : ''}
+                            onChangeText={(val) => handleRowQtyChange(row.id, val)}
+                            keyboardType="numeric"
+                            placeholder="100"
+                            placeholderTextColor={THEME.colors.textMuted}
+                          />
 
-                        {/* Delete row button */}
-                        <TouchableOpacity
-                          style={styles.delRowBtn}
-                          onPress={() => handleRemoveIngredientRow(row.id)}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          activeOpacity={0.7}
-                        >
-                          <X size={14} color={THEME.colors.textMuted} />
-                        </TouchableOpacity>
+                          <View style={styles.unitPillsRow}>
+                            {AVAILABLE_UNITS.map((u) => {
+                              const isSelected = row.used_unit === u;
+                              return (
+                                <TouchableOpacity
+                                  key={u}
+                                  style={[styles.unitPill, isSelected && styles.unitPillActive]}
+                                  onPress={() => handleRowUnitChange(row.id, u)}
+                                  activeOpacity={0.7}
+                                >
+                                  <Text style={[styles.unitPillText, isSelected && styles.unitPillTextActive]}>
+                                    {u}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+
+                          <View style={styles.portionCostBadge}>
+                            <Text style={styles.portionCostBadgeText}>${portionCost.toFixed(2)} USD</Text>
+                          </View>
+                        </View>
                       </View>
                     );
                   })
                 )}
-
-                {/* Educational formula hint */}
-                <View style={styles.formulaHintBox}>
-                  <Text style={styles.formulaHintText}>
-                    💡 Ejemplo: Si 1kg de harina cuesta $1.06 en Insumos, al usar 700g aquí se calcula automáticamente: $0.74 USD.
-                  </Text>
-                </View>
               </View>
 
               <View style={styles.fieldWrapper}>
@@ -1549,39 +1543,60 @@ const styles = StyleSheet.create({
     color: THEME.colors.textMuted,
   },
   ingPortionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: '#09090b',
     borderRadius: THEME.radius.md,
     borderWidth: 1,
     borderColor: THEME.colors.cardBorder,
-    padding: 8,
-    marginBottom: 6,
-    gap: 6,
+    padding: 10,
+    marginBottom: 8,
+    gap: 8,
+  },
+  ingPortionTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
   },
   ingSelectBtn: {
-    flex: 1.4,
+    flex: 1,
     paddingRight: 4,
   },
   ingSelectBtnTitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: THEME.colors.textPrimary,
   },
   ingSelectBtnSub: {
-    fontSize: 10,
+    fontSize: 11,
     color: THEME.colors.accent,
-    marginTop: 1,
+    marginTop: 2,
+  },
+  delRowBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#18181b',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ingPortionBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.05)',
   },
   ingQtyInput: {
-    width: 52,
+    width: 64,
+    height: 34,
     backgroundColor: '#18181b',
     borderRadius: THEME.radius.sm,
     borderWidth: 1,
     borderColor: THEME.colors.cardBorder,
-    paddingHorizontal: 4,
-    paddingVertical: 5,
-    fontSize: 12,
+    paddingHorizontal: 6,
+    fontSize: 13,
     fontWeight: '700',
     color: '#ffffff',
     textAlign: 'center',
@@ -1592,18 +1607,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#18181b',
     borderRadius: THEME.radius.sm,
     padding: 2,
-    gap: 2,
+    gap: 3,
   },
   unitPill: {
-    paddingHorizontal: 4,
-    paddingVertical: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     borderRadius: 4,
   },
   unitPillActive: {
     backgroundColor: THEME.colors.accent,
   },
   unitPillText: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '700',
     color: THEME.colors.textMuted,
   },
@@ -1612,30 +1627,14 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   portionCostBadge: {
-    width: 48,
     alignItems: 'flex-end',
+    minWidth: 64,
   },
   portionCostBadgeText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '800',
     color: THEME.colors.accentLight,
     fontVariant: ['tabular-nums'],
-  },
-  delRowBtn: {
-    padding: 4,
-  },
-  formulaHintBox: {
-    backgroundColor: 'rgba(245, 158, 11, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.2)',
-    padding: 8,
-    borderRadius: THEME.radius.sm,
-    marginTop: 4,
-  },
-  formulaHintText: {
-    fontSize: 10,
-    color: THEME.colors.accentLight,
-    lineHeight: 14,
   },
   saveRecipeBtn: {
     backgroundColor: THEME.colors.accent,
