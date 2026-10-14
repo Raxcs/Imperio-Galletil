@@ -164,6 +164,23 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         />
       }
     >
+      {/* Top Header matching simulation.html */}
+      <View style={styles.pageHeader}>
+        <Text style={styles.pageTitle}>Inicio</Text>
+        <TouchableOpacity
+          style={styles.headerActionBtn}
+          onPress={handleSyncBcv}
+          disabled={isSyncingRates}
+          activeOpacity={0.7}
+        >
+          {isSyncingRates ? (
+            <ActivityIndicator size="small" color={THEME.colors.accent} />
+          ) : (
+            <Text style={styles.headerActionText}>Actualizar</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+
       {/* Official BCV Rates Card */}
       <TouchableOpacity
         style={styles.ratesCard}
@@ -172,22 +189,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         activeOpacity={0.8}
       >
         <View style={styles.cardHeader}>
-          <View>
-            <Text style={styles.cardEyebrow}>TASAS OFICIALES BCV</Text>
-            <Text style={styles.cardTapHint}>
-              {isSyncingRates ? 'Consultando cotizacion oficial...' : 'Toca para actualizar en vivo'}
-            </Text>
-          </View>
-          <View style={styles.rateStatusPill}>
-            {isSyncingRates ? (
-              <ActivityIndicator size="small" color={THEME.colors.accent} />
-            ) : (
-              <>
-                <View style={styles.statusDot} />
-                <Text style={styles.rateStatusText}>En vivo</Text>
-              </>
-            )}
-          </View>
+          <Text style={styles.cardEyebrow}>Tasas Oficiales BCV</Text>
+          <Text style={styles.rateStatusTextMuted}>En vivo</Text>
         </View>
 
         <View style={styles.ratesGrid}>
@@ -386,6 +389,27 @@ const styles = StyleSheet.create({
     borderColor: THEME.colors.cardBorder,
     padding: 16,
   },
+  pageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  pageTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: -0.5,
+  },
+  headerActionBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  headerActionText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: THEME.colors.accent,
+  },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -393,10 +417,15 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   cardEyebrow: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: THEME.colors.accent,
-    letterSpacing: 0.8,
+    fontSize: 12,
+    fontWeight: '700',
+    color: THEME.colors.textSecondary,
+    letterSpacing: -0.2,
+  },
+  rateStatusTextMuted: {
+    fontSize: 11,
+    color: THEME.colors.textMuted,
+    fontWeight: '600',
   },
   cardTitle: {
     fontSize: 13,

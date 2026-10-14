@@ -392,6 +392,12 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
 
   return (
     <View style={styles.screenWrapper}>
+      {/* Page Header matching simulation.html */}
+      <View style={styles.pageHeader}>
+        <Text style={styles.pageTitle}>Recetario</Text>
+        <Text style={styles.pageHeaderSub}>Desliza fila para borrar</Text>
+      </View>
+
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.contentContainer}
@@ -405,11 +411,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
           />
         }
       >
-        {/* Header Info */}
-        <View style={styles.headerInfo}>
-          <Text style={styles.headerSubtitle}>RECETARIO Y ESCANDALLO</Text>
-          <Text style={styles.headerDesc}>Toca cualquier receta para ver detalles, insumos y pasos</Text>
-        </View>
+        {/* Recipe Cards List */}
 
         {/* Recipe Cards List */}
         <View style={styles.recipesList}>
@@ -986,11 +988,31 @@ const styles = StyleSheet.create({
     position: 'relative',
     backgroundColor: 'transparent',
   },
+  pageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
+  pageTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: -0.5,
+  },
+  pageHeaderSub: {
+    fontSize: 12,
+    color: THEME.colors.textMuted,
+    fontWeight: '600',
+  },
   container: {
     flex: 1,
   },
   contentContainer: {
     padding: 16,
+    paddingTop: 8,
     gap: 14,
     paddingBottom: 96,
   },

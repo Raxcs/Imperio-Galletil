@@ -91,6 +91,12 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
     await setCachedIngredients(updated);
   };
 
+  const clearSelections = async () => {
+    const updated = ingredients.map((i) => ({ ...i, selected: false }));
+    onIngredientsUpdated(updated);
+    await setCachedIngredients(updated);
+  };
+
   const handleOpenEdit = (item: Ingredient) => {
     setEditingItem(item);
     setEditName(item.name);
@@ -270,8 +276,35 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
     empaques: 'Empaques y Descartables',
   };
 
-  return (
+    return (
     <View style={styles.screenWrapper}>
+      {/* Page Header matching simulation.html */}
+      <View style={styles.pageHeader}>
+        <Text style={styles.pageTitle}>Insumos</Text>
+        <Text style={styles.pageHeaderSub}>Desliza fila para borrar</Text>
+      </View>
+
+      {/* Always Visible Fixed Sticky Bar matching simulation.html */}
+      <View style={styles.stickyBar}>
+        <View style={styles.stickyBarInfo}>
+          <Text style={styles.stickyBarLabel}>Total Compra Marcada</Text>
+          <Text style={styles.stickyBarValue}>
+            ${selectedTotalUsd.toFixed(2)} USD · Bs. {selectedTotalVes.toLocaleString('es-VE', { maximumFractionDigits: 2 })}
+          </Text>
+        </View>
+        {selectedIngredients.length > 0 ? (
+          <TouchableOpacity
+            style={styles.headerActionBtn}
+            onPress={clearSelections}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.headerActionText}>Limpiar</Text>
+          </TouchableOpacity>
+        ) : (
+          <Text style={styles.stickyBarZeroCaption}>0 marcados</Text>
+        )}
+      </View>
+
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.contentContainer}
@@ -285,28 +318,6 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
           />
         }
       >
-        {/* Top Banner: Total Seleccionado (solo si hay insumos marcados) */}
-        {selectedIngredients.length > 0 && (
-          <View style={styles.summaryCard}>
-            <View style={styles.summaryTopRow}>
-              <Text style={styles.summaryTitle}>TOTAL COMPRA MARCADA</Text>
-              <View style={styles.summaryBadge}>
-                <Text style={styles.summaryBadgeText}>
-                  {selectedIngredients.length} {selectedIngredients.length === 1 ? 'Marcado' : 'Marcados'}
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.summaryAmountRow}>
-              <Text style={styles.summaryTotalVes}>
-                Bs. {selectedTotalVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </Text>
-              <Text style={styles.summaryTotalUsd}>
-                ${selectedTotalUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-              </Text>
-            </View>
-          </View>
-        )}
 
         {/* Category Filter Pills */}
         <View style={styles.catSwitcher}>
@@ -666,11 +677,75 @@ const styles = StyleSheet.create({
     position: 'relative',
     backgroundColor: 'transparent',
   },
+  pageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
+  pageTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: -0.5,
+  },
+  pageHeaderSub: {
+    fontSize: 12,
+    color: THEME.colors.textMuted,
+    fontWeight: '600',
+  },
+  stickyBar: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    backgroundColor: 'rgba(18, 18, 21, 0.96)',
+    borderRadius: THEME.radius.md,
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  stickyBarInfo: {
+    flex: 1,
+  },
+  stickyBarLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  stickyBarValue: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#ffffff',
+    marginTop: 2,
+    fontVariant: ['tabular-nums'],
+  },
+  stickyBarZeroCaption: {
+    fontSize: 11,
+    color: THEME.colors.textMuted,
+    fontWeight: '600',
+  },
+  headerActionBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  headerActionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: THEME.colors.accent,
+  },
   container: {
     flex: 1,
   },
   contentContainer: {
     padding: 16,
+    paddingTop: 4,
     gap: 14,
     paddingBottom: 96,
   },

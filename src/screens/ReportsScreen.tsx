@@ -257,6 +257,12 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
 
   return (
     <View style={styles.screenWrapper}>
+      {/* Page Header matching simulation.html */}
+      <View style={styles.pageHeader}>
+        <Text style={styles.pageTitle}>Produccion</Text>
+        <Text style={styles.pageHeaderSub}>Desliza fila para borrar</Text>
+      </View>
+
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.contentContainer}
@@ -270,55 +276,31 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
           />
         }
       >
-        {/* Top Banner: Ganancia Neta Libre */}
-        <View style={styles.netProfitCard}>
-          <View style={styles.netProfitHeader}>
-            <Text style={styles.netProfitTitle}>GANANCIA NETA LIBRE</Text>
-          </View>
-
-          <View style={styles.netProfitAmountRow}>
-            <Text style={styles.netProfitVes}>
-              Bs. {netProfitVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </Text>
-            <Text style={styles.netProfitUsd}>
-              ${netProfitUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-            </Text>
-          </View>
-
-          <View style={styles.marginRow}>
-            <Text style={styles.marginLabel}>Margen libre real</Text>
-            <View style={styles.marginPill}>
-              <Text style={styles.marginValue}>{margin}% de rentabilidad</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Two Secondary Metric Cards */}
-        <View style={styles.secondaryCardsGrid}>
-          {/* Ventas Totales */}
-          <View style={styles.secCard}>
-            <Text style={styles.secCardLabel}>VENTAS TOTALES</Text>
-            <Text style={styles.secCardVes}>
+        {/* Metric Hero: Ventas Totales Producidas matching simulation.html */}
+        <View style={styles.metricHero}>
+          <Text style={styles.metricHeroTitle}>Ventas Totales Producidas</Text>
+          <View style={styles.metricHeroAmountRow}>
+            <Text style={styles.metricHeroAmount}>
               Bs. {totalGrossVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </Text>
-            <Text style={styles.secCardUsd}>
+            <Text style={styles.metricHeroSub}>
               ${grossUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
             </Text>
-            <Text style={styles.secCardSub}>Ingreso bruto de venta</Text>
           </View>
 
-          {/* Fondo a Reinvertir */}
-          <View style={styles.secCard}>
-            <Text style={styles.secCardLabel}>FONDO A REINVERTIR</Text>
-            <Text style={[styles.secCardVes, { color: THEME.colors.accentLight }]}>
-              Bs. {totalReinvestVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </Text>
-            <Text style={styles.secCardUsd}>
-              ${reinvestUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
-            </Text>
-            <Text style={styles.secCardSub}>
-              Fondo intocable insumos
-            </Text>
+          <View style={styles.metricBreakdown}>
+            <View style={styles.metricPill}>
+              <Text style={styles.metricPillLabel}>Fondo Insumos (Reponer)</Text>
+              <Text style={[styles.metricPillVal, { color: THEME.colors.accentLight }]}>
+                Bs. {totalReinvestVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </Text>
+            </View>
+            <View style={styles.metricPill}>
+              <Text style={styles.metricPillLabel}>Ganancia Libre Neta</Text>
+              <Text style={[styles.metricPillVal, { color: THEME.colors.success }]}>
+                Bs. {netProfitVes.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </Text>
+            </View>
           </View>
         </View>
 
@@ -646,21 +628,95 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'transparent',
   },
+  pageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
+  pageTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: -0.5,
+  },
+  pageHeaderSub: {
+    fontSize: 12,
+    color: THEME.colors.textMuted,
+    fontWeight: '600',
+  },
   container: {
     flex: 1,
     backgroundColor: 'transparent',
   },
   contentContainer: {
     padding: 16,
+    paddingTop: 4,
     gap: 14,
     paddingBottom: 30,
   },
-  netProfitCard: {
+  metricHero: {
     backgroundColor: THEME.colors.card,
     borderRadius: THEME.radius.lg,
     padding: 16,
     borderWidth: 1,
-    borderColor: THEME.colors.cardBorderHighlight,
+    borderColor: THEME.colors.cardBorder,
+  },
+  metricHeroTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  metricHeroAmountRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  metricHeroAmount: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#ffffff',
+    fontVariant: ['tabular-nums'],
+    letterSpacing: -0.5,
+  },
+  metricHeroSub: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: THEME.colors.accentLight,
+    fontVariant: ['tabular-nums'],
+  },
+  metricBreakdown: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  metricPill: {
+    flex: 1,
+    backgroundColor: THEME.colors.cardElevated,
+    borderRadius: THEME.radius.sm,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  metricPillLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: THEME.colors.textMuted,
+    textTransform: 'uppercase',
+  },
+  metricPillVal: {
+    fontSize: 13,
+    fontWeight: '800',
+    marginTop: 2,
+    fontVariant: ['tabular-nums'],
   },
   netProfitHeader: {
     flexDirection: 'row',
