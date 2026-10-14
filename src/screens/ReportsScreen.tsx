@@ -492,27 +492,35 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
         </View>
       )}
 
-      {/* Edit Production Log Modal */}
+      {/* Edit Production Log Modal (Bóveda Bottom Sheet) */}
       {editingLog && (
         <Modal
           visible={!!editingLog}
           transparent
-          animationType="fade"
+          animationType="slide"
           onRequestClose={() => setEditingLog(null)}
         >
           <View style={styles.modalOverlay}>
-            <View style={styles.modalBox}>
+            <TouchableOpacity
+              style={styles.modalBackdropDismiss}
+              activeOpacity={1}
+              onPress={() => setEditingLog(null)}
+            />
+            <View style={styles.sheetBox}>
+              <View style={styles.sheetHandle} />
+
               <View style={styles.modalHeader}>
                 <View>
-                  <Text style={styles.modalTitle}>Editar Produccion</Text>
-                  <Text style={styles.modalSubtitle}>Modifica cantidad, precio o costo del lote</Text>
+                  <Text style={styles.modalTitle}>Editar Lote</Text>
+                  <Text style={styles.modalSubtitle}>{editingLog.name}</Text>
                 </View>
                 <TouchableOpacity
-                  style={styles.modalCloseBtn}
+                  style={styles.sheetCloseBtn}
                   onPress={() => setEditingLog(null)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   activeOpacity={0.7}
                 >
-                  <X size={18} color={THEME.colors.textMuted} />
+                  <X size={16} color={THEME.colors.textMuted} />
                 </TouchableOpacity>
               </View>
 
@@ -530,7 +538,7 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
 
                 <View style={styles.rowFields}>
                   <View style={[styles.fieldWrapper, { flex: 1 }]}>
-                    <Text style={styles.label}>Packs hechos</Text>
+                    <Text style={styles.label}>Packs hechos (un)</Text>
                     <TextInput
                       style={styles.input}
                       value={editLogQtyStr}
@@ -542,7 +550,7 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
                   </View>
 
                   <View style={[styles.fieldWrapper, { flex: 1 }]}>
-                    <Text style={styles.label}>Precio venta (Bs)</Text>
+                    <Text style={styles.label}>Precio venta (Bs.)</Text>
                     <TextInput
                       style={styles.input}
                       value={editLogPriceStr}
@@ -555,7 +563,7 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
                 </View>
 
                 <View style={styles.fieldWrapper}>
-                  <Text style={styles.label}>Costo unitario por pack (Bs)</Text>
+                  <Text style={styles.label}>Costo unitario por pack (Bs.)</Text>
                   <TextInput
                     style={styles.input}
                     value={editLogCostStr}
@@ -567,18 +575,16 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
                 </View>
               </View>
 
-              <View style={styles.modalFooter}>
-                <TouchableOpacity
-                  style={[styles.saveModalBtn, isSubmitting && { opacity: 0.6 }]}
-                  onPress={handleSaveEdit}
-                  disabled={isSubmitting}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.saveModalBtnText}>
-                    {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity
+                style={[styles.saveModalBtn, isSubmitting && { opacity: 0.6 }]}
+                onPress={handleSaveEdit}
+                disabled={isSubmitting}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.saveModalBtnText}>
+                  {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         </Modal>
@@ -944,43 +950,68 @@ const styles = StyleSheet.create({
     color: '#09090b',
     letterSpacing: 0.5,
   },
-  // Edit Modal
+  // Edit Modal (Bóveda Bottom Sheet)
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    justifyContent: 'flex-end',
   },
-  modalBox: {
-    width: '100%',
-    backgroundColor: '#121215',
-    borderRadius: THEME.radius.lg,
-    borderWidth: 1,
-    borderColor: THEME.colors.cardBorderHighlight,
-    padding: 18,
-    gap: 14,
+  modalBackdropDismiss: {
+    ...StyleSheet.absoluteFill,
+  },
+  sheetBox: {
+    backgroundColor: THEME.colors.card,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 32,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
+    elevation: 24,
+  },
+  sheetHandle: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.24)',
+    alignSelf: 'center',
+    marginBottom: 8,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingBottom: 10,
+    alignItems: 'center',
+    paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: THEME.colors.cardBorder,
   },
   modalTitle: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
     color: THEME.colors.textPrimary,
   },
   modalSubtitle: {
-    fontSize: 11,
+    fontSize: 12,
     color: THEME.colors.textMuted,
-    marginTop: 2,
+    marginTop: 1,
   },
-  modalCloseBtn: {
-    padding: 4,
+  sheetCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: THEME.colors.cardElevated,
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   modalBody: {
     gap: 10,

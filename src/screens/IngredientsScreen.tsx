@@ -429,20 +429,35 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
         </View>
       )}
 
-      {/* Edit Ingredient Modal (Full edit + Delete) */}
+      {/* Edit Ingredient Modal (Bóveda Bottom Sheet) */}
       {editingItem && (
         <Modal
           visible={!!editingItem}
           transparent
-          animationType="fade"
+          animationType="slide"
           onRequestClose={() => setEditingItem(null)}
         >
           <View style={styles.modalOverlay}>
-            <View style={styles.modalBox}>
+            <TouchableOpacity
+              style={styles.modalBackdropDismiss}
+              activeOpacity={1}
+              onPress={() => setEditingItem(null)}
+            />
+            <View style={styles.sheetBox}>
+              <View style={styles.sheetHandle} />
+
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Editar Insumo</Text>
-                <TouchableOpacity onPress={() => setEditingItem(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <X size={18} color={THEME.colors.textMuted} />
+                <View>
+                  <Text style={styles.modalTitle}>Editar Insumo</Text>
+                  <Text style={styles.modalSubTitle}>{editingItem.name}</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.sheetCloseBtn}
+                  onPress={() => setEditingItem(null)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  activeOpacity={0.7}
+                >
+                  <X size={16} color={THEME.colors.textMuted} />
                 </TouchableOpacity>
               </View>
 
@@ -517,7 +532,6 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
                 </View>
               </View>
 
-
               <TouchableOpacity
                 style={styles.submitBtn}
                 onPress={handleSaveEdit}
@@ -530,19 +544,31 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
         </Modal>
       )}
 
-      {/* Modal para Registrar Nuevo Insumo */}
+      {/* Modal para Registrar Nuevo Insumo (Bóveda Bottom Sheet) */}
       <Modal
         visible={isAddFormVisible}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setIsAddFormVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
+          <TouchableOpacity
+            style={styles.modalBackdropDismiss}
+            activeOpacity={1}
+            onPress={() => setIsAddFormVisible(false)}
+          />
+          <View style={styles.sheetBox}>
+            <View style={styles.sheetHandle} />
+
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Nuevo Insumo</Text>
-              <TouchableOpacity onPress={() => setIsAddFormVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <X size={18} color={THEME.colors.textMuted} />
+              <Text style={styles.modalTitle}>Registrar Insumo</Text>
+              <TouchableOpacity
+                style={styles.sheetCloseBtn}
+                onPress={() => setIsAddFormVisible(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                activeOpacity={0.7}
+              >
+                <X size={16} color={THEME.colors.textMuted} />
               </TouchableOpacity>
             </View>
 
@@ -845,17 +871,37 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
-    justifyContent: 'center',
-    padding: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    justifyContent: 'flex-end',
   },
-  modalBox: {
+  modalBackdropDismiss: {
+    ...StyleSheet.absoluteFill,
+  },
+  sheetBox: {
     backgroundColor: THEME.colors.card,
-    borderRadius: THEME.radius.xl,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: THEME.colors.cardBorderHighlight,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 32,
     gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
+    elevation: 24,
+  },
+  sheetHandle: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.24)',
+    alignSelf: 'center',
+    marginBottom: 8,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -866,9 +912,24 @@ const styles = StyleSheet.create({
     borderBottomColor: THEME.colors.cardBorder,
   },
   modalTitle: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
     color: THEME.colors.textPrimary,
+  },
+  modalSubTitle: {
+    fontSize: 12,
+    color: THEME.colors.textMuted,
+    marginTop: 1,
+  },
+  sheetCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: THEME.colors.cardElevated,
+    borderWidth: 1,
+    borderColor: THEME.colors.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   fieldWrapper: {},
   rowFields: {

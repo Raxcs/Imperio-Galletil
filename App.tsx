@@ -302,6 +302,7 @@ function MainAppContent() {
           <DebtsScreen
             debts={debts}
             rates={rates}
+            recipes={computedRecipes}
             onDebtsUpdated={setDebts}
           />
         )}
@@ -615,24 +616,25 @@ const styles = StyleSheet.create({
   },
   bottomNav: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(18, 18, 21, 0.96)',
+    backgroundColor: 'rgba(9, 9, 11, 0.95)',
     borderTopWidth: 1,
     borderTopColor: THEME.colors.cardBorder,
     paddingTop: 8,
-    paddingHorizontal: 6,
+    paddingBottom: 4,
+    paddingHorizontal: 8,
   },
   navItem: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
-    paddingVertical: 3,
+    gap: 4,
+    paddingVertical: 4,
   },
   navLabel: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '500',
     color: THEME.colors.textMuted,
-    letterSpacing: 0.1,
+    letterSpacing: -0.1,
   },
   navLabelActive: {
     color: THEME.colors.accent,
