@@ -1,4 +1,5 @@
-const storage = {};
+// Shared across jest.resetModules() so a simulated app restart keeps its "disk", like a real device
+const storage = (globalThis.__asyncStorageMock = globalThis.__asyncStorageMock || {});
 
 module.exports = {
   getItem: jest.fn(async (key) => storage[key] || null),

@@ -2,7 +2,6 @@ import {
   INITIAL_RECIPES,
   computeRecipesWithIngredients,
   calcPortionCost,
-  isRecipeDeleted,
 } from '../services/recipesService';
 
 describe('Recipes Costing and Ingredients Logic', () => {
@@ -106,16 +105,5 @@ describe('Recipes Costing and Ingredients Logic', () => {
     expect(cost2Eggs).toBe(0.47);
   });
 
-  it('should correctly identify logically deleted recipes without permanent deletion', () => {
-    const normalRecipe = { id: 'r1', title: 'Galletas', subtitle: 'Normal' };
-    const markedRecipe = { id: 'r2', title: 'Galletas', subtitle: 'Normal', deleted: true };
-    const prefixRecipe = { id: 'r3', title: 'Galletas', subtitle: '__DELETED__Receta de la casa' };
-    const cachedDeletedIds = new Set(['r4']);
-
-    expect(isRecipeDeleted(normalRecipe as any)).toBe(false);
-    expect(isRecipeDeleted(markedRecipe as any)).toBe(true);
-    expect(isRecipeDeleted(prefixRecipe as any)).toBe(true);
-    expect(isRecipeDeleted({ id: 'r4', title: 'Torta' } as any, cachedDeletedIds)).toBe(true);
-  });
 });
 

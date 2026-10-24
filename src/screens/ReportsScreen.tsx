@@ -14,30 +14,19 @@ import { Plus, Pencil, Undo2, X } from 'lucide-react-native';
 import { THEME } from '../theme';
 import { ProductionLog, ExchangeRates, Recipe } from '../types';
 import { SwipeableRow } from '../components/SwipeableRow';
-import {
-  fetchProductionLogs,
-  addProductionLogInBackend,
-  updateProductionLogInBackend,
-  deleteProductionLogInBackend,
-  restoreProductionLogInBackend,
-  setCachedProductionLogs,
-  isProductionLogDeleted,
-  isLegacySeedLog,
-} from '../services/productionService';
+import { logsRepo, syncNow } from '../data';
 import { generateId } from '../lib/sync';
 
 interface ReportsScreenProps {
   logs: ProductionLog[];
   rates: ExchangeRates;
   recipes: Recipe[];
-  onLogsUpdated: (logs: ProductionLog[]) => void;
 }
 
 export const ReportsScreen: React.FC<ReportsScreenProps> = ({
   logs,
   rates,
   recipes,
-  onLogsUpdated,
 }) => {
   const initialRecipe = recipes[0];
   const initialCost = initialRecipe ? Number((initialRecipe.pack_cost_usd * rates.usd_ves).toFixed(2)) : 286.93;
@@ -60,10 +49,7 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      const fresh = await fetchProductionLogs();
-      if (fresh) {
-        onLogsUpdated(fresh);
-      }
+      await syncNow();
     } catch (err) {
       console.warn('Error refreshing production logs', err);
     } finally {
@@ -81,7 +67,7 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
   let totalGrossVes = 0;
   let totalReinvestVes = 0;
 
-  const activeLogs = logs.filter((item) => !isProductionLogDeleted(item) && !isLegacySeedLog(item));
+  const activeLogs = logs;
 
   activeLogs.forEach((item) => {
     const itemGross = item.qty * item.price_ves;
@@ -156,18 +142,13 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
       created_at: new Date().toISOString(),
     };
 
-    // Optimistic UI and cache update immediately (<1ms)
-    const updated = [newLog, ...logs.filter((l) => l.id !== newLogId)];
-    onLogsUpdated(updated);
-    await setCachedProductionLogs(updated);
-
-    // Close modal immediately so the user cannot double-click
-    setIsAddModalOpen(false);
-
+    // Local write only (a few ms); isSubmitting blocks double taps meanwhile
     try {
-      await addProductionLogInBackend(newLog);
+      await logsRepo.upsert(newLog);
+      setIsAddModalOpen(false);
     } catch (err) {
-      console.warn('Error saving production log in backend', err);
+      console.warn('Error saving production log', err);
+      Alert.alert('No se pudo guardar', 'Intenta de nuevo.');
     } finally {
       setIsSubmitting(false);
     }
@@ -203,16 +184,12 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
       cost_ves: cost,
     };
 
-    // Optimistically update UI and cache immediately
-    const updated = logs.map((l) => (l.id === editingLog.id ? updatedLog : l));
-    onLogsUpdated(updated);
-    await setCachedProductionLogs(updated);
-    setEditingLog(null);
-
     try {
-      await updateProductionLogInBackend(updatedLog);
+      await logsRepo.upsert(updatedLog);
+      setEditingLog(null);
     } catch (err) {
-      console.warn('Error updating production log in backend', err);
+      console.warn('Error updating production log', err);
+      Alert.alert('No se pudo guardar', 'Intenta de nuevo.');
     } finally {
       setIsSubmitting(false);
     }
@@ -226,11 +203,6 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
       setEditingLog(null);
     }
 
-    // Immediately remove from UI and cache
-    const updated = logs.filter((l) => l.id !== id);
-    onLogsUpdated(updated);
-    setCachedProductionLogs(updated);
-
     // Provide Undo state
     setDeletedLogToUndo(logToDelete);
 
@@ -238,9 +210,10 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
       clearTimeout(undoTimerRef.current);
     }
 
-    // 5-second grace period before permanent deletion in backend
-    undoTimerRef.current = setTimeout(async () => {
-      await deleteProductionLogInBackend(id, logToDelete);
+    // The delete is persisted right away (tombstone); the 5 second window only controls the
+    // undo banner, and undo restores the same record.
+    logsRepo.remove(id).catch((err) => console.warn('Error deleting production log', err));
+    undoTimerRef.current = setTimeout(() => {
       setDeletedLogToUndo(null);
     }, 5000);
   };
@@ -254,10 +227,7 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({
     const itemToRestore = deletedLogToUndo;
     setDeletedLogToUndo(null);
 
-    const restored = [itemToRestore, ...logs];
-    onLogsUpdated(restored);
-    await setCachedProductionLogs(restored);
-    await restoreProductionLogInBackend(itemToRestore.id, itemToRestore);
+    await logsRepo.restore(itemToRestore.id);
   };
 
 

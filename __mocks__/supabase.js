@@ -1,4 +1,5 @@
 module.exports = {
+  withTimeout: (promise) => Promise.resolve(promise),
   supabase: {
     from: jest.fn(() => ({
       select: jest.fn().mockReturnThis(),

@@ -16,16 +16,8 @@ import { Plus, Check, X, Calendar, Undo2 } from 'lucide-react-native';
 import { THEME } from '../theme';
 import { Debt, ExchangeRates, Recipe } from '../types';
 import { SwipeableRow } from '../components/SwipeableRow';
-import {
-  fetchDebts,
-  saveDebtInBackend,
-  deleteDebtInBackend,
-  restoreDebtInBackend,
-  togglePaidDebtInBackend,
-  clearPaidDebtsInBackend,
-  AUTO_PURGE_DAYS,
-  setCachedDebts,
-} from '../services/debtsService';
+import { AUTO_PURGE_DAYS } from '../services/debtsService';
+import { debtsRepo, syncNow } from '../data';
 import { generateId } from '../lib/sync';
 
 export interface QuickPresetProduct {
@@ -38,14 +30,12 @@ interface DebtsScreenProps {
   debts: Debt[];
   rates: ExchangeRates;
   recipes?: Recipe[];
-  onDebtsUpdated: (debts: Debt[]) => void;
 }
 
 export const DebtsScreen: React.FC<DebtsScreenProps> = ({
   debts,
   rates,
   recipes,
-  onDebtsUpdated,
 }) => {
   const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
   const [isFormVisible, setIsFormVisible] = useState(false);
@@ -55,10 +45,7 @@ export const DebtsScreen: React.FC<DebtsScreenProps> = ({
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      const fresh = await fetchDebts();
-      if (fresh) {
-        onDebtsUpdated(fresh);
-      }
+      await syncNow();
     } catch (err) {
       console.warn('Error refreshing debts', err);
     } finally {
@@ -235,18 +222,15 @@ export const DebtsScreen: React.FC<DebtsScreenProps> = ({
         debt_date: finalDateStr,
         note: note.trim(),
       };
-      const newDebts = debts.map((d) => (d.id === editingDebt.id ? updated : d));
-      onDebtsUpdated(newDebts);
-      await setCachedDebts(newDebts);
-      setIsFormVisible(false);
-      setEditingDebt(null);
-      setSelectedProductId(null);
-      setProductQty(1);
-
       try {
-        await saveDebtInBackend(updated);
+        await debtsRepo.upsert(updated);
+        setIsFormVisible(false);
+        setEditingDebt(null);
+        setSelectedProductId(null);
+        setProductQty(1);
       } catch (err) {
-        console.warn('Error saving edited debt in backend', err);
+        console.warn('Error saving edited debt', err);
+        Alert.alert('No se pudo guardar', 'Intenta de nuevo.');
       } finally {
         setIsSubmitting(false);
       }
@@ -262,18 +246,15 @@ export const DebtsScreen: React.FC<DebtsScreenProps> = ({
         paid_date: null,
         created_at: new Date().toISOString(),
       };
-      const newDebts = [newDebt, ...debts.filter((d) => d.id !== newDebtId)];
-      onDebtsUpdated(newDebts);
-      await setCachedDebts(newDebts);
-      setIsFormVisible(false);
-      setActiveTab('pending');
-      setSelectedProductId(null);
-      setProductQty(1);
-
       try {
-        await saveDebtInBackend(newDebt);
+        await debtsRepo.upsert(newDebt);
+        setIsFormVisible(false);
+        setActiveTab('pending');
+        setSelectedProductId(null);
+        setProductQty(1);
       } catch (err) {
-        console.warn('Error creating debt in backend', err);
+        console.warn('Error creating debt', err);
+        Alert.alert('No se pudo guardar', 'Intenta de nuevo.');
       } finally {
         setIsSubmitting(false);
       }
@@ -288,11 +269,6 @@ export const DebtsScreen: React.FC<DebtsScreenProps> = ({
       setEditingDebt(null);
     }
 
-    // Remove immediately from UI & local cache
-    const updated = debts.filter((d) => d.id !== debtIdToDelete);
-    onDebtsUpdated(updated);
-    setCachedDebts(updated);
-
     // Provide Undo state
     setDeletedDebtToUndo(debtToDelete);
 
@@ -300,9 +276,10 @@ export const DebtsScreen: React.FC<DebtsScreenProps> = ({
       clearTimeout(undoTimerRef.current);
     }
 
-    // Strictly 5 second grace period before permanent deletion in backend
-    undoTimerRef.current = setTimeout(async () => {
-      await deleteDebtInBackend(debtIdToDelete, debtToDelete);
+    // The delete is persisted right away (tombstone); the 5 second window only controls the
+    // undo banner, and undo restores the same record.
+    debtsRepo.remove(debtIdToDelete).catch((err) => console.warn('Error deleting debt', err));
+    undoTimerRef.current = setTimeout(() => {
       setDeletedDebtToUndo(null);
     }, 5000);
   };
@@ -316,22 +293,14 @@ export const DebtsScreen: React.FC<DebtsScreenProps> = ({
     const debtToRestore = deletedDebtToUndo;
     setDeletedDebtToUndo(null);
 
-    const restored = [debtToRestore, ...debts];
-    onDebtsUpdated(restored);
-    await setCachedDebts(restored);
-    await restoreDebtInBackend(debtToRestore.id, debtToRestore);
+    await debtsRepo.restore(debtToRestore.id);
   };
 
   const handleTogglePaid = async (debt: Debt) => {
     const nextPaid = !debt.paid;
     const nextPaidDate = nextPaid ? todayISO : null;
 
-    const updatedDebts = debts.map((d) =>
-      d.id === debt.id ? { ...d, paid: nextPaid, paid_date: nextPaidDate } : d
-    );
-    onDebtsUpdated(updatedDebts);
-    await setCachedDebts(updatedDebts);
-    await togglePaidDebtInBackend(debt.id, nextPaid);
+    await debtsRepo.upsert({ ...debt, paid: nextPaid, paid_date: nextPaidDate });
   };
 
   const handleClearHistory = () => {
@@ -345,10 +314,7 @@ export const DebtsScreen: React.FC<DebtsScreenProps> = ({
           text: 'Vaciar',
           style: 'destructive',
           onPress: async () => {
-            const updated = debts.filter((d) => !d.paid);
-            onDebtsUpdated(updated);
-            await setCachedDebts(updated);
-            await clearPaidDebtsInBackend(historyDebts);
+            for (const d of historyDebts) await debtsRepo.remove(d.id);
           },
         },
       ]

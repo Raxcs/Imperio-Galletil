@@ -28,18 +28,10 @@ import {
   AlertCircle,
 } from 'lucide-react-native';
 import { THEME } from './src/theme';
-import {
-  ExchangeRates,
-  Ingredient,
-  Debt,
-  Recipe,
-  ProductionLog,
-} from './src/types';
+import { ExchangeRates } from './src/types';
 import { getExchangeRates, DEFAULT_RATES, syncBcvRates } from './src/services/exchangeRatesService';
-import { getCachedIngredients, INITIAL_INGREDIENTS, fetchIngredients } from './src/services/ingredientsService';
-import { getCachedDebts, INITIAL_DEBTS, fetchDebts } from './src/services/debtsService';
-import { getCachedRecipes, INITIAL_RECIPES, computeRecipesWithIngredients, fetchRecipes } from './src/services/recipesService';
-import { getCachedProductionLogs, INITIAL_PRODUCTION_LOGS, fetchProductionLogs } from './src/services/productionService';
+import { computeRecipesWithIngredients } from './src/services/recipesService';
+import { startData, syncNow, useDebts, useIngredients, useLogs, useRecipes } from './src/data';
 import {
   checkForAppUpdate,
   openAppUpdateDownload,
@@ -57,10 +49,11 @@ import { ReportsScreen } from './src/screens/ReportsScreen';
 function MainAppContent() {
   const [activeTab, setActiveTab] = useState<'home' | 'debts' | 'recipes' | 'ingredients' | 'reports'>('home');
   const [rates, setRates] = useState<ExchangeRates>(DEFAULT_RATES);
-  const [ingredients, setIngredients] = useState<Ingredient[]>(INITIAL_INGREDIENTS);
-  const [debts, setDebts] = useState<Debt[]>(INITIAL_DEBTS);
-  const [recipes, setRecipes] = useState<Recipe[]>(INITIAL_RECIPES);
-  const [logs, setLogs] = useState<ProductionLog[]>(INITIAL_PRODUCTION_LOGS);
+  // Local collections are the source of truth; the sync engine uploads in the background
+  const ingredients = useIngredients();
+  const debts = useDebts();
+  const recipes = useRecipes();
+  const logs = useLogs();
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
   const [bannerDismissedVersion, setBannerDismissedVersion] = useState<string | null>(null);
@@ -137,32 +130,20 @@ function MainAppContent() {
     return computeRecipesWithIngredients(recipes, ingredients, rates);
   }, [recipes, ingredients, rates]);
 
-  // Initial load: 1. Instant Cache Hydration (<5ms), 2. Decoupled Background Cloud Sync
+  // Initial load: local data first (never waits for the network), then background sync
   useEffect(() => {
     let isMounted = true;
 
-    (async () => {
-      // 1. Immediately hydrate state from local storage cache
-      try {
-        const [cachedRates, cachedDebts, cachedIngredients, cachedRecipes, cachedLogs] = await Promise.all([
-          getExchangeRates(),
-          getCachedDebts(),
-          getCachedIngredients(),
-          getCachedRecipes(),
-          getCachedProductionLogs(),
-        ]);
+    startData().catch((err) => console.warn('Error starting local data', err));
 
-        if (!isMounted) return;
-        if (cachedRates) setRates(cachedRates);
-        if (Array.isArray(cachedDebts)) setDebts(cachedDebts);
-        if (cachedIngredients && cachedIngredients.length > 0) setIngredients(cachedIngredients);
-        if (cachedRecipes && cachedRecipes.length > 0) setRecipes(cachedRecipes);
-        if (cachedLogs && cachedLogs.length > 0) setLogs(cachedLogs);
+    (async () => {
+      try {
+        const cachedRates = await getExchangeRates();
+        if (isMounted && cachedRates) setRates(cachedRates);
       } catch (err) {
-        console.warn('Error hydrating local cache on startup', err);
+        console.warn('Error hydrating exchange rates on startup', err);
       }
 
-      // 2. Refresh official market exchange rates in background
       syncBcvRates()
         .then((bcvSync) => {
           if (isMounted && bcvSync.updated) {
@@ -170,28 +151,6 @@ function MainAppContent() {
           }
         })
         .catch(() => {});
-
-      // 3. Sync all data entities with Supabase in background
-      Promise.allSettled([
-        fetchDebts(),
-        fetchIngredients(),
-        fetchRecipes(),
-        fetchProductionLogs(),
-      ]).then(([debtsRes, ingRes, recRes, logRes]) => {
-        if (!isMounted) return;
-        if (debtsRes.status === 'fulfilled' && Array.isArray(debtsRes.value)) {
-          setDebts(debtsRes.value);
-        }
-        if (ingRes.status === 'fulfilled' && Array.isArray(ingRes.value) && ingRes.value.length > 0) {
-          setIngredients(ingRes.value);
-        }
-        if (recRes.status === 'fulfilled' && Array.isArray(recRes.value) && recRes.value.length > 0) {
-          setRecipes(recRes.value);
-        }
-        if (logRes.status === 'fulfilled' && Array.isArray(logRes.value)) {
-          setLogs(logRes.value);
-        }
-      }).catch(() => {});
     })();
 
     return () => {
@@ -201,28 +160,9 @@ function MainAppContent() {
 
   const handleSyncAllCloudData = async () => {
     try {
-      const [newRatesResult, newDebts, newIngredients, newRecipes, newLogs] = await Promise.allSettled([
-        syncBcvRates(),
-        fetchDebts(),
-        fetchIngredients(),
-        fetchRecipes(),
-        fetchProductionLogs(),
-      ]);
-
+      const [newRatesResult] = await Promise.allSettled([syncBcvRates(), syncNow()]);
       if (newRatesResult.status === 'fulfilled' && newRatesResult.value.updated) {
         setRates(newRatesResult.value.rates);
-      }
-      if (newDebts.status === 'fulfilled' && Array.isArray(newDebts.value)) {
-        setDebts(newDebts.value);
-      }
-      if (newIngredients.status === 'fulfilled' && Array.isArray(newIngredients.value) && newIngredients.value.length > 0) {
-        setIngredients(newIngredients.value);
-      }
-      if (newRecipes.status === 'fulfilled' && Array.isArray(newRecipes.value) && newRecipes.value.length > 0) {
-        setRecipes(newRecipes.value);
-      }
-      if (newLogs.status === 'fulfilled' && Array.isArray(newLogs.value)) {
-        setLogs(newLogs.value);
       }
     } catch (err) {
       console.warn('Error syncing cloud data', err);
@@ -386,7 +326,6 @@ function MainAppContent() {
             debts={debts}
             rates={rates}
             recipes={computedRecipes}
-            onDebtsUpdated={setDebts}
           />
         )}
 
@@ -395,7 +334,6 @@ function MainAppContent() {
             recipes={computedRecipes}
             rates={rates}
             ingredients={ingredients}
-            onRecipesUpdated={setRecipes}
           />
         )}
 
@@ -403,7 +341,6 @@ function MainAppContent() {
           <IngredientsScreen
             ingredients={ingredients}
             rates={rates}
-            onIngredientsUpdated={setIngredients}
           />
         )}
 
@@ -412,7 +349,6 @@ function MainAppContent() {
             logs={logs}
             rates={rates}
             recipes={computedRecipes}
-            onLogsUpdated={setLogs}
           />
         )}
       </View>

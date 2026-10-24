@@ -13,8 +13,6 @@ import {
 import { THEME } from '../theme';
 import { ExchangeRates, Debt, ProductionLog } from '../types';
 import { syncBcvRates } from '../services/exchangeRatesService';
-import { isProductionLogDeleted, isLegacySeedLog } from '../services/productionService';
-import { isDebtDeleted } from '../services/debtsService';
 import { ChevronRight } from 'lucide-react-native';
 
 interface HomeScreenProps {
@@ -100,17 +98,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   }
 
   // Business pulse metrics
-  const pendingDebts = debts.filter((d) => !d.paid && !isDebtDeleted(d));
+  const pendingDebts = debts.filter((d) => !d.paid);
   const totalPendingVes = pendingDebts.reduce((sum, d) => sum + d.amount, 0);
   const totalPendingUsd = rates.usd_ves > 0 ? totalPendingVes / rates.usd_ves : 0;
 
   let totalGrossVes = 0;
   let totalReinvestVes = 0;
   logs.forEach((item) => {
-    if (!isProductionLogDeleted(item) && !isLegacySeedLog(item)) {
-      totalGrossVes += item.qty * item.price_ves;
-      totalReinvestVes += item.qty * item.cost_ves;
-    }
+    totalGrossVes += item.qty * item.price_ves;
+    totalReinvestVes += item.qty * item.cost_ves;
   });
   const netProfitVes = Math.max(0, totalGrossVes - totalReinvestVes);
   const netProfitUsd = rates.usd_ves > 0 ? netProfitVes / rates.usd_ves : 0;

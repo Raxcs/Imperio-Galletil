@@ -15,24 +15,14 @@ import * as Clipboard from 'expo-clipboard';
 import { THEME } from '../theme';
 import { Recipe, ExchangeRates, Ingredient, RecipeIngredient } from '../types';
 import { SwipeableRow } from '../components/SwipeableRow';
-import {
-  fetchRecipes,
-  updateRecipeProcessInBackend,
-  createRecipeInBackend,
-  updateRecipeInBackend,
-  deleteRecipeInBackend,
-  restoreRecipeInBackend,
-  setCachedRecipes,
-  calcPortionCost,
-  getIngredientBase,
-} from '../services/recipesService';
+import { calcPortionCost, getIngredientBase } from '../services/recipesService';
+import { recipesRepo, syncNow } from '../data';
 import { generateId } from '../lib/sync';
 
 interface RecipesScreenProps {
   recipes: Recipe[];
   rates: ExchangeRates;
   ingredients: Ingredient[];
-  onRecipesUpdated: (recipes: Recipe[]) => void;
 }
 
 interface EditorIngredientRow {
@@ -56,7 +46,6 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
   recipes,
   rates,
   ingredients,
-  onRecipesUpdated,
 }) => {
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
   const selectedRecipe = recipes.find((r) => r.id === selectedRecipeId) || null;
@@ -250,15 +239,12 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
         ingredients: builtIngredients,
       };
 
-      const updatedList = recipes.map((r) => (r.id === editorRecipeId ? updatedRecipe : r));
-      onRecipesUpdated(updatedList);
-      await setCachedRecipes(updatedList);
-      setIsEditorModalOpen(false);
-
       try {
-        await updateRecipeInBackend(updatedRecipe);
+        await recipesRepo.upsert(updatedRecipe);
+        setIsEditorModalOpen(false);
       } catch (err) {
-        console.warn('Error updating recipe in backend', err);
+        console.warn('Error updating recipe', err);
+        Alert.alert('No se pudo guardar', 'Intenta de nuevo.');
       } finally {
         setIsSubmitting(false);
       }
@@ -275,15 +261,12 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
         ingredients: builtIngredients,
       };
 
-      const updatedList = [...recipes, newRecipe];
-      onRecipesUpdated(updatedList);
-      await setCachedRecipes(updatedList);
-      setIsEditorModalOpen(false);
-
       try {
-        await createRecipeInBackend(newRecipe);
+        await recipesRepo.upsert(newRecipe);
+        setIsEditorModalOpen(false);
       } catch (err) {
-        console.warn('Error creating recipe in backend', err);
+        console.warn('Error creating recipe', err);
+        Alert.alert('No se pudo guardar', 'Intenta de nuevo.');
       } finally {
         setIsSubmitting(false);
       }
@@ -293,10 +276,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      const fresh = await fetchRecipes();
-      if (fresh) {
-        onRecipesUpdated(fresh);
-      }
+      await syncNow();
     } catch (err) {
       console.warn('Error refreshing recipes', err);
     } finally {
@@ -338,14 +318,8 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
       process: trimmed,
     };
 
-    const newRecipes = recipes.map((r) =>
-      r.id === selectedRecipe.id ? updatedRecipe : r
-    );
-
     setIsEditingProcess(false);
-    onRecipesUpdated(newRecipes);
-    await setCachedRecipes(newRecipes);
-    await updateRecipeProcessInBackend(selectedRecipe.id, trimmed);
+    await recipesRepo.upsert(updatedRecipe);
   };
 
   const handleDeleteRecipe = (recipeId: string) => {
@@ -356,11 +330,6 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
       setSelectedRecipeId(null);
     }
 
-    // Immediately remove from UI and cache
-    const updated = recipes.filter((r) => r.id !== recipeId);
-    onRecipesUpdated(updated);
-    setCachedRecipes(updated);
-
     // Provide Undo state
     setDeletedRecipeToUndo(recipeToDelete);
 
@@ -368,9 +337,10 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
       clearTimeout(undoTimerRef.current);
     }
 
-    // 5-second grace period before permanent deletion in backend
-    undoTimerRef.current = setTimeout(async () => {
-      await deleteRecipeInBackend(recipeId, recipeToDelete);
+    // The delete is persisted right away (tombstone); the 5 second window only controls the
+    // undo banner, and undo restores the same record.
+    recipesRepo.remove(recipeId).catch((err) => console.warn('Error deleting recipe', err));
+    undoTimerRef.current = setTimeout(() => {
       setDeletedRecipeToUndo(null);
     }, 5000);
   };
@@ -384,10 +354,7 @@ export const RecipesScreen: React.FC<RecipesScreenProps> = ({
     const itemToRestore = deletedRecipeToUndo;
     setDeletedRecipeToUndo(null);
 
-    const restored = [itemToRestore, ...recipes];
-    onRecipesUpdated(restored);
-    await setCachedRecipes(restored);
-    await restoreRecipeInBackend(itemToRestore);
+    await recipesRepo.restore(itemToRestore.id);
   };
 
   return (

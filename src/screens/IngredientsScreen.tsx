@@ -14,26 +14,17 @@ import { Plus, Check, X, Pencil, Undo2 } from 'lucide-react-native';
 import { THEME } from '../theme';
 import { Ingredient, ExchangeRates } from '../types';
 import { SwipeableRow } from '../components/SwipeableRow';
-import {
-  fetchIngredients,
-  createIngredientInBackend,
-  updateIngredientInBackend,
-  deleteIngredientInBackend,
-  restoreIngredientInBackend,
-  setCachedIngredients,
-} from '../services/ingredientsService';
+import { ingredientsRepo, syncNow } from '../data';
 import { generateId } from '../lib/sync';
 
 interface IngredientsScreenProps {
   ingredients: Ingredient[];
   rates: ExchangeRates;
-  onIngredientsUpdated: (ingredients: Ingredient[]) => void;
 }
 
 export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
   ingredients,
   rates,
-  onIngredientsUpdated,
 }) => {
   const [activeCategory, setActiveCategory] = useState<'todos' | 'galletas' | 'brownies' | 'empaques'>('todos');
   const [isAddFormVisible, setIsAddFormVisible] = useState(false);
@@ -42,10 +33,7 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      const fresh = await fetchIngredients();
-      if (fresh) {
-        onIngredientsUpdated(fresh);
-      }
+      await syncNow();
     } catch (err) {
       console.warn('Error refreshing ingredients', err);
     } finally {
@@ -84,17 +72,11 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
     : ingredients.filter((i) => i.category.includes(activeCategory));
 
   const toggleSelection = async (id: string) => {
-    const updated = ingredients.map((i) =>
-      i.id === id ? { ...i, selected: !i.selected } : i
-    );
-    onIngredientsUpdated(updated);
-    await setCachedIngredients(updated);
+    await ingredientsRepo.toggleSelected(id);
   };
 
   const clearSelections = async () => {
-    const updated = ingredients.map((i) => ({ ...i, selected: false }));
-    onIngredientsUpdated(updated);
-    await setCachedIngredients(updated);
+    await ingredientsRepo.clearSelected();
   };
 
   const handleOpenEdit = (item: Ingredient) => {
@@ -148,14 +130,13 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
       price_ves: calculatedVes,
     };
 
-    const updated = ingredients.map((i) =>
-      i.id === editingItem.id ? updatedItem : i
-    );
-
-    onIngredientsUpdated(updated);
-    await setCachedIngredients(updated);
-    await updateIngredientInBackend(updatedItem);
-    setEditingItem(null);
+    try {
+      await ingredientsRepo.upsert(updatedItem);
+      setEditingItem(null);
+    } catch (err) {
+      console.warn('Error saving ingredient', err);
+      Alert.alert('No se pudo guardar', 'Intenta de nuevo.');
+    }
   };
 
   const handleDeleteIngredientItem = (itemToDelete: Ingredient) => {
@@ -165,11 +146,6 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
       setEditingItem(null);
     }
 
-    // Immediately remove from UI and cache
-    const updated = ingredients.filter((i) => i.id !== idToDelete);
-    onIngredientsUpdated(updated);
-    setCachedIngredients(updated);
-
     // Provide Undo state
     setDeletedIngToUndo(itemToDelete);
 
@@ -177,9 +153,10 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
       clearTimeout(undoTimerRef.current);
     }
 
-    // Strictly 5-second grace period before permanent deletion in backend
-    undoTimerRef.current = setTimeout(async () => {
-      await deleteIngredientInBackend(idToDelete, itemToDelete);
+    // The delete is persisted right away (tombstone); the 5 second window only controls the
+    // undo banner, and undo restores the same record.
+    ingredientsRepo.remove(idToDelete).catch((err) => console.warn('Error deleting ingredient', err));
+    undoTimerRef.current = setTimeout(() => {
       setDeletedIngToUndo(null);
     }, 5000);
   };
@@ -193,10 +170,7 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
     const itemToRestore = deletedIngToUndo;
     setDeletedIngToUndo(null);
 
-    const restored = [itemToRestore, ...ingredients];
-    onIngredientsUpdated(restored);
-    await setCachedIngredients(restored);
-    await restoreIngredientInBackend(itemToRestore.id, itemToRestore);
+    await ingredientsRepo.restore(itemToRestore.id);
   };
 
   const handleNewUsdChange = (val: string) => {
@@ -248,22 +222,16 @@ export const IngredientsScreen: React.FC<IngredientsScreenProps> = ({
       created_at: new Date().toISOString(),
     };
 
-    // Optimistically update UI and cache immediately
-    const updated = [newItem, ...ingredients.filter((i) => i.id !== newId)];
-    onIngredientsUpdated(updated);
-    await setCachedIngredients(updated);
-
-    // Reset form & close modal immediately
-    setNewName('');
-    setNewPresentation('');
-    setNewPriceUsd('');
-    setNewPriceVes('');
-    setIsAddFormVisible(false);
-
     try {
-      await createIngredientInBackend(newItem);
+      await ingredientsRepo.upsert(newItem);
+      setNewName('');
+      setNewPresentation('');
+      setNewPriceUsd('');
+      setNewPriceVes('');
+      setIsAddFormVisible(false);
     } catch (err) {
-      console.warn('Error saving ingredient in backend', err);
+      console.warn('Error saving ingredient', err);
+      Alert.alert('No se pudo guardar', 'Intenta de nuevo.');
     } finally {
       setIsSubmitting(false);
     }
